@@ -99,15 +99,19 @@ resolveai/
 ## Testing commands (from Milestone 3 onward)
 
 ```bash
-# backend
+# backend (from Milestone 3)
 cd backend && uv run pytest -q                 # or: python -m pytest -q
 python -m pytest tests/integration -q          # needs local Postgres running
 python scripts/seed_demo.py                    # deterministic demo data
-# frontend
-cd frontend && npm run test                    # vitest + React Testing Library
-npm run lint && npm run build
-# mcp server
+# mcp server (from Milestone 5)
 cd backend && python -m app.mcp_server.main
+```
+
+Frontend (available now). Vite 8 requires Node >= 22.12; use the pinned portable Node:
+`$env:PATH = "$(Get-Location)\.tools\node22;$env:PATH"` (PowerShell) before `npm` commands.
+
+```bash
+cd frontend && npm run typecheck && npm run test && npm run lint && npm run build
 ```
 
 ## Security constraints (non-negotiable)

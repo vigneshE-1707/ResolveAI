@@ -1,0 +1,22 @@
+# Local portable toolchain (Node 22 for Vite 8) — never commit
+.tools/
+
+# Node
+node_modules/
+dist/
+*.log
+npm-debug.log*
+
+# Python (Milestone 3+)
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Env & editor
+.env
+.env.local
+.DS_Store
+.idea/
+.vscode/

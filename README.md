@@ -32,8 +32,33 @@ deterministic validation and explicit approval, and escalates cleanly to human a
 
 ## Status
 
-**Milestone 1 — Design & Architecture: COMPLETE (awaiting approval).**
-Implementation starts with Milestone 2 (frontend UI foundation) after review. See `ROADMAP.md`.
+**Milestone 2 — Frontend UI Foundation: COMPLETE (awaiting approval).**
+Milestone 1 (design & architecture) is approved. All UI in `frontend/` runs on clearly labelled demo
+data (`frontend/src/mocks/data.ts`); no backend calls are made yet.
+
+## Run the frontend
+
+The project pins a local portable Node 22 (`vite` 8 requires ≥22.12). From the repository root:
+
+```powershell
+$env:PATH = "$(Get-Location)\.tools\node22;$env:PATH"
+cd frontend
+npm install          # first run only
+npm run dev          # http://localhost:5173
+```
+
+| Script | Purpose |
+|---|---|
+| `npm run dev` | Vite dev server with `/api` proxy to `localhost:8000` |
+| `npm run build` | `tsc -b` typecheck + production bundle |
+| `npm run typecheck` | Types only |
+| `npm run test` / `test:watch` | Vitest + Testing Library (jsdom) |
+| `npm run lint` | oxlint |
+
+Routes: `/support`, `/orders`, `/tickets` (customer) · `/agent`, `/agent/conversations`,
+`/agent/tickets` · `/admin` and the admin operations/intelligence pages · `/login`, `/register`,
+`/profile`, `/settings`. Use the sidebar or topbar avatar to preview another role — that switcher is
+a **local demo affordance**, not authentication.
 
 ## Local prerequisites (planned Milestone 3)
 
