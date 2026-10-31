@@ -26,15 +26,70 @@ deterministic validation and explicit approval, and escalates cleanly to human a
 | [`ROADMAP.md`](ROADMAP.md) | Milestones 1–10 with acceptance criteria and current status |
 | [`docs/requirements.md`](docs/requirements.md) | Functional/non-functional requirements, MVP scope, roles, user journeys |
 | [`docs/api-design.md`](docs/api-design.md) | REST + SSE API surface (v1) |
-| [`docs/ui-design.md`](docs/ui-design.md) | Design system and component mapping |
+| [`frontend/src/index.css`](frontend/src/index.css) | Design tokens (Tailwind 4 `@theme`) and base styles |
+| [`frontend/src/components/ui`](frontend/src/components/ui) | shadcn/ui component library used across portals |
 | [`CLAUDE.md`](CLAUDE.md) | Agent instructions for AI-assisted development |
 | [`.env.example`](.env.example) | All environment variables with docs |
 
 ## Status
 
-**Milestone 2 — Frontend UI Foundation: COMPLETE (awaiting approval).**
-Milestone 1 (design & architecture) is approved. All UI in `frontend/` runs on clearly labelled demo
-data (`frontend/src/mocks/data.ts`); no backend calls are made yet.
+**Milestone 3 — Backend Foundation: COMPLETE (awaiting review).**
+Auth (register/login/refresh/logout with DB-backed session revocation), RBAC, orders, returns,
+tickets, conversations, agent workspace, admin, health, structured logging, audit trail, Alembic
+migrations (up → down → up verified), deterministic seed, and 40 passing tests.
+
+**Frontend integration is the remaining part of Milestone 3.** All UI in `frontend/` still runs on
+clearly labelled demo data (`frontend/src/mocks/data.ts`); the API client, auth provider, route
+guards, and snake_case → camelCase mappers are next.
+
+## Run the backend
+
+Requires Docker Desktop (for Postgres 16 + pgvector) and Python 3.12+.
+
+```powershell
+# 1. Database (from the repository root)
+docker compose up -d db
+
+# 2. Python environment (from backend/)
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
+
+# 3. Schema + demo data
+.\.venv\Scripts\python.exe -m alembic upgrade head
+.\.venv\Scripts\python.exe scripts\seed_demo.py
+
+# 4. API
+.\.venv\Scripts\python.exe -m uvicorn app.main:application --host 127.0.0.1 --port 8000
+```
+
+OpenAPI docs: <http://127.0.0.1:8000/docs>. Health: `/api/v1/healthz`, `/api/v1/readyz`.
+
+**Demo credentials** (password `ResolveAI#2026` for every account):
+
+| Role | Email |
+|---|---|
+| Customer | `john.doe@email.com` |
+| Support agent | `maya.fernandez@resolveai.app` |
+| Admin | `alex.morgan@resolveai.app` |
+
+```powershell
+# Tests (integration tests create and migrate a separate resolveai_test database)
+cd backend
+.\.venv\Scripts\python.exe -m pytest -q
+
+# Reset demo data to its deterministic state
+.\.venv\Scripts\python.exe scripts\seed_demo.py --reset
+```
+
+### API conventions
+
+- JSON fields are **snake_case** on the wire; the frontend maps them to camelCase at the API-client
+  boundary.
+- Errors always use `{ "code", "message", "details", "request_id" }` with a stable `code`
+  (`not_found`, `forbidden`, `validation_error`, `authentication_failed`, `duplicate`, …).
+- List endpoints return `{ "data": [...], "meta": { "page", "page_size", "total" } }`.
+- State-changing customer requests accept an `Idempotency-Key` header and replay the original
+  resource on retry.
 
 ## Run the frontend
 
@@ -60,8 +115,8 @@ Routes: `/support`, `/orders`, `/tickets` (customer) · `/agent`, `/agent/conver
 `/profile`, `/settings`. Use the sidebar or topbar avatar to preview another role — that switcher is
 a **local demo affordance**, not authentication.
 
-## Local prerequisites (planned Milestone 3)
+## Local prerequisites
 
-- Python 3.12, Node 20+, Git
-- PostgreSQL 16+ with `pgvector` — via Docker Compose (recommended) or local install
+- Python 3.12+ (3.13 is verified), Node 20+, Git
+- Docker Desktop for PostgreSQL 16 + `pgvector` (`docker compose up -d db`)
 - A Gemini API key (`GOOGLE_API_KEY`); LangSmith key optional

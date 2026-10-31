@@ -21,9 +21,10 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
-import { useRole } from "@/app/role-context"
-import { customerTickets } from "@/mocks/data"
+import { ApiError } from "@/lib/api/client"
+import { useCreateTicket, useMyTickets } from "@/lib/api/hooks"
 import { cn } from "@/lib/utils"
 
 const ticketSchema = z.object({
@@ -38,8 +39,9 @@ type TicketForm = z.infer<typeof ticketSchema>
 const filters = ["all", "open", "in_progress", "resolved"] as const
 
 export function CustomerTicketsPage() {
-  const { user } = useRole()
-  const tickets = customerTickets(user.customerId ?? "cus_01")
+  const ticketsQuery = useMyTickets()
+  const createTicket = useCreateTicket()
+  const tickets = ticketsQuery.data?.data ?? []
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState<(typeof filters)[number]>("all")
   const form = useForm<TicketForm>({
@@ -49,6 +51,29 @@ export function CustomerTicketsPage() {
   const category = useWatch({ control: form.control, name: "category" })
 
   const visible = tickets.filter((t) => filter === "all" || t.status === filter)
+
+  const onSubmit = form.handleSubmit((values) => {
+    createTicket.mutate(
+      {
+        subject: values.subject,
+        category: values.category,
+        description: values.description,
+        orderNumber: values.orderNumber || undefined,
+      },
+      {
+        onSuccess: (ticket) => {
+          toast.success("Ticket created", {
+            description: `${ticket.ticketNumber} — ${ticket.subject}`,
+          })
+          setOpen(false)
+          form.reset()
+        },
+        onError: (error) => {
+          toast.error(error instanceof ApiError ? error.message : "Could not create the ticket")
+        },
+      }
+    )
+  })
 
   return (
     <div>
@@ -70,17 +95,7 @@ export function CustomerTicketsPage() {
                   Prefer the assistant? It can create a ticket automatically after checking your order.
                 </DialogDescription>
               </DialogHeader>
-              <form
-                id="new-ticket-form"
-                className="space-y-3"
-                onSubmit={form.handleSubmit((values) => {
-                  toast.success("Ticket created", {
-                    description: `${values.subject} — demo only, persisted in Milestone 3.`,
-                  })
-                  setOpen(false)
-                  form.reset()
-                })}
-              >
+              <form id="new-ticket-form" className="space-y-3" onSubmit={onSubmit}>
                 <div className="space-y-1.5">
                   <Label htmlFor="subject">Subject</Label>
                   <Input id="subject" placeholder="Short summary" {...form.register("subject")} />
@@ -132,8 +147,8 @@ export function CustomerTicketsPage() {
                 <Button variant="outline" size="sm" onClick={() => setOpen(false)}>
                   Cancel
                 </Button>
-                <Button size="sm" type="submit" form="new-ticket-form">
-                  Create ticket
+                <Button size="sm" type="submit" form="new-ticket-form" disabled={createTicket.isPending}>
+                  {createTicket.isPending ? "Creating…" : "Create ticket"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -159,7 +174,27 @@ export function CustomerTicketsPage() {
         ))}
       </div>
 
-      {visible.length === 0 ? (
+      {ticketsQuery.isLoading ? (
+        <div className="grid gap-2.5 lg:grid-cols-2" aria-busy="true" aria-live="polite">
+          <span className="sr-only">Loading tickets…</span>
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-24 rounded-xl" />
+          ))}
+        </div>
+      ) : ticketsQuery.isError ? (
+        <div className="rounded-xl border border-border bg-card">
+          <EmptyState
+            icon={TicketIcon}
+            title="Could not load your tickets"
+            description="The ticket service did not respond. Check your connection and try again."
+            action={
+              <Button size="sm" variant="outline" onClick={() => void ticketsQuery.refetch()}>
+                Try again
+              </Button>
+            }
+          />
+        </div>
+      ) : visible.length === 0 ? (
         <div className="rounded-xl border border-border bg-card">
           <EmptyState
             icon={TicketIcon}

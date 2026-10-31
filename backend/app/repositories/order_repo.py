@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.order import Order, OrderItem, Shipment, ReturnRequest
+from app.models.user import Customer
 
 
 class OrderRepository:
@@ -16,14 +17,16 @@ class OrderRepository:
 
     async def get_by_id(self, order_id: uuid.UUID) -> Order | None:
         stmt = select(Order).where(Order.id == order_id).options(
-            selectinload(Order.items), selectinload(Order.shipment),
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.shipment),
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_order_number(self, order_number: str, *, customer_id: uuid.UUID | None = None) -> Order | None:
         stmt = select(Order).where(Order.order_number == order_number).options(
-            selectinload(Order.items), selectinload(Order.shipment),
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.shipment),
         )
         if customer_id:
             stmt = stmt.where(Order.customer_id == customer_id)
@@ -44,7 +47,11 @@ class OrderRepository:
             stmt = stmt.where(Order.order_number.ilike(pattern))
             count_stmt = count_stmt.where(Order.order_number.ilike(pattern))
         total = (await self.session.execute(count_stmt)).scalar() or 0
-        stmt = stmt.options(selectinload(Order.items), selectinload(Order.shipment)).order_by(Order.placed_at.desc()).offset(offset).limit(limit)
+        stmt = stmt.options(
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.shipment),
+            selectinload(Order.customer).selectinload(Customer.user),
+        ).order_by(Order.placed_at.desc()).offset(offset).limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all()), total
 
@@ -62,7 +69,11 @@ class OrderRepository:
             stmt = stmt.where(Order.order_number.ilike(pattern))
             count_stmt = count_stmt.where(Order.order_number.ilike(pattern))
         total = (await self.session.execute(count_stmt)).scalar() or 0
-        stmt = stmt.options(selectinload(Order.items), selectinload(Order.shipment)).order_by(Order.placed_at.desc()).offset(offset).limit(limit)
+        stmt = stmt.options(
+            selectinload(Order.items).selectinload(OrderItem.product),
+            selectinload(Order.shipment),
+            selectinload(Order.customer).selectinload(Customer.user),
+        ).order_by(Order.placed_at.desc()).offset(offset).limit(limit)
         result = await self.session.execute(stmt)
         return list(result.scalars().all()), total
 
@@ -91,6 +102,27 @@ class ReturnRequestRepository:
         stmt = select(ReturnRequest).where(ReturnRequest.idempotency_key == key)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_active_for_order(self, order_id: uuid.UUID) -> ReturnRequest | None:
+        stmt = (
+            select(ReturnRequest)
+            .where(
+                ReturnRequest.order_id == order_id,
+                ReturnRequest.status.in_(["requested", "approved", "refunded"]),
+            )
+            .order_by(ReturnRequest.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
+    async def get_by_order(self, order_id: uuid.UUID) -> list[ReturnRequest]:
+        stmt = (
+            select(ReturnRequest)
+            .where(ReturnRequest.order_id == order_id)
+            .order_by(ReturnRequest.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
 
     async def list_by_customer(self, customer_id: uuid.UUID, *, offset: int = 0, limit: int = 20) -> tuple[list[ReturnRequest], int]:
         stmt = select(ReturnRequest).where(ReturnRequest.customer_id == customer_id)

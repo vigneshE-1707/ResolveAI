@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react"
-import { Link } from "react-router-dom"
+import { useState } from "react"
 import { Download, Search } from "lucide-react"
 import { toast } from "sonner"
 
@@ -8,25 +7,16 @@ import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { useAdminOrders } from "@/lib/api/hooks"
 import { formatCurrency, formatDate } from "@/lib/format"
 import { orderStatusTone } from "@/lib/status"
-import { customers, orders } from "@/mocks/data"
 
 export function AdminOrdersPage() {
   const [query, setQuery] = useState("")
-
-  const visible = useMemo(() => {
-    const q = query.toLowerCase()
-    return orders.filter((order) => {
-      const customer = customers.find((c) => c.id === order.customerId)
-      return (
-        order.orderNumber.toLowerCase().includes(q) ||
-        customer?.fullName.toLowerCase().includes(q) ||
-        order.items.some((item) => item.name.toLowerCase().includes(q))
-      )
-    })
-  }, [query])
+  const ordersQuery = useAdminOrders({ q: query || undefined, pageSize: 50 })
+  const orders = ordersQuery.data?.data ?? []
 
   return (
     <div>
@@ -39,7 +29,7 @@ export function AdminOrdersPage() {
             variant="outline"
             size="sm"
             className="gap-1.5"
-            onClick={() => toast.info("CSV export arrives with the reporting API in Milestone 9")}
+            onClick={() => toast.info("CSV export is not available yet")}
           >
             <Download className="size-3.5" /> Export
           </Button>
@@ -58,53 +48,62 @@ export function AdminOrdersPage() {
                 className="h-8 pl-8 text-[12px]"
               />
             </div>
-            <p className="text-[11px] text-muted-foreground">{visible.length} orders · demo data</p>
+            <p className="text-[11px] text-muted-foreground">
+              {ordersQuery.data?.total ?? orders.length} orders
+            </p>
           </div>
 
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Order</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Items</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Carrier</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-                <TableHead>Placed</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {visible.map((order) => {
-                const customer = customers.find((c) => c.id === order.customerId)
-                return (
+          {ordersQuery.isLoading ? (
+            <div className="space-y-2 p-4">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <Skeleton key={index} className="h-8 rounded-md" />
+              ))}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Order</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Items</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Carrier</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
+                  <TableHead>Placed</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {orders.map((order) => (
                   <TableRow key={order.id}>
-                    <TableCell>
-                      <Link to={`/orders/${order.orderNumber}`} className="font-mono text-[11px] font-semibold text-primary hover:underline">
-                        #{order.orderNumber}
-                      </Link>
+                    <TableCell className="font-mono text-[11px] font-semibold">
+                      #{order.orderNumber}
                     </TableCell>
-                    <TableCell>
-                      <p className="font-medium">{customer?.fullName ?? "—"}</p>
-                      <p className="text-[10.5px] text-muted-foreground">{customer?.city}</p>
-                    </TableCell>
+                    <TableCell className="font-medium">{order.customerName ?? "—"}</TableCell>
                     <TableCell className="max-w-[220px] truncate text-muted-foreground">
-                      {order.items.map((item) => item.name).join(", ")}
+                      {order.firstItemName ?? "—"}
+                      {order.lineCount > 1 ? ` +${order.lineCount - 1} more` : ""}
                     </TableCell>
-                    <TableCell><StatusBadge tone={orderStatusTone[order.status]} /></TableCell>
+                    <TableCell>
+                      <StatusBadge tone={orderStatusTone[order.status]} />
+                    </TableCell>
                     <TableCell className="text-[11px] text-muted-foreground">
                       {order.shipment?.carrier ?? "—"}
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular">
                       {formatCurrency(order.totalCents, order.currency)}
                     </TableCell>
-                    <TableCell className="text-muted-foreground">{formatDate(order.placedAt, "MMM d")}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {formatDate(order.placedAt, "MMM d")}
+                    </TableCell>
                   </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-          {visible.length === 0 && (
-            <p className="py-8 text-center text-[12px] text-muted-foreground">No orders match that search.</p>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {!ordersQuery.isLoading && orders.length === 0 && (
+            <p className="py-8 text-center text-[12px] text-muted-foreground">
+              {ordersQuery.isError ? "Could not load orders." : "No orders match that search."}
+            </p>
           )}
         </CardContent>
       </Card>

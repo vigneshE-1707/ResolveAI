@@ -1,6 +1,9 @@
 import { lazy, Suspense, type ReactNode } from "react"
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom"
 
+import { useAuth } from "@/app/auth-context"
+import { homePath } from "@/app/navigation"
+import { RequireAuth, RequireRole } from "@/app/route-guards"
 import { AppShell } from "@/components/layout/app-shell"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -98,37 +101,62 @@ const NotFoundPage = lazy(() =>
 
 const withFallback = (node: ReactNode) => <Suspense fallback={<RouteFallback />}>{node}</Suspense>
 
+const customerOnly = (node: ReactNode) =>
+  withFallback(<RequireRole roles={["CUSTOMER"]}>{node}</RequireRole>)
+
+const staffOnly = (node: ReactNode) =>
+  withFallback(<RequireRole roles={["SUPPORT_AGENT", "ADMIN"]}>{node}</RequireRole>)
+
+const adminOnly = (node: ReactNode) =>
+  withFallback(<RequireRole roles={["ADMIN"]}>{node}</RequireRole>)
+
+function HomeRedirect() {
+  const { role } = useAuth()
+  return <Navigate to={role ? homePath[role] : "/login"} replace />
+}
+
+/** Signed-in users should not sit on the sign-in screens. */
+function GuestOnly({ children }: { children: ReactNode }) {
+  const { status, role } = useAuth()
+  if (status === "authenticated" && role) return <Navigate to={homePath[role]} replace />
+  return <>{children}</>
+}
+
 const router = createBrowserRouter([
-  { path: "/login", element: withFallback(<LoginPage />) },
-  { path: "/register", element: withFallback(<RegisterPage />) },
+  { path: "/login", element: withFallback(<GuestOnly><LoginPage /></GuestOnly>) },
+  { path: "/register", element: withFallback(<GuestOnly><RegisterPage /></GuestOnly>) },
   {
     path: "/",
-    element: <AppShell />,
+    element: (
+      <RequireAuth>
+        <AppShell />
+      </RequireAuth>
+    ),
     children: [
-      { index: true, element: <Navigate to="/support" replace /> },
+      { index: true, element: <HomeRedirect /> },
 
       // Customer portal
-      { path: "support", element: withFallback(<CustomerSupportPage />) },
-      { path: "orders", element: withFallback(<CustomerOrdersPage />) },
-      { path: "orders/:orderNumber", element: withFallback(<CustomerOrderDetailPage />) },
-      { path: "tickets", element: withFallback(<CustomerTicketsPage />) },
-      { path: "tickets/:ticketNumber", element: withFallback(<CustomerTicketDetailPage />) },
+      { path: "support", element: customerOnly(<CustomerSupportPage />) },
+      { path: "orders", element: customerOnly(<CustomerOrdersPage />) },
+      { path: "orders/:orderNumber", element: customerOnly(<CustomerOrderDetailPage />) },
+      { path: "tickets", element: customerOnly(<CustomerTicketsPage />) },
+      { path: "tickets/:ticketNumber", element: customerOnly(<CustomerTicketDetailPage />) },
 
       // Agent workspace
-      { path: "agent", element: withFallback(<AgentDashboardPage />) },
-      { path: "agent/conversations", element: withFallback(<AgentWorkspacePage />) },
-      { path: "agent/conversations/:conversationId", element: withFallback(<AgentWorkspacePage />) },
-      { path: "agent/tickets", element: withFallback(<AgentTicketsPage />) },
+      { path: "agent", element: staffOnly(<AgentDashboardPage />) },
+      { path: "agent/conversations", element: staffOnly(<AgentWorkspacePage />) },
+      { path: "agent/conversations/:conversationId", element: staffOnly(<AgentWorkspacePage />) },
+      { path: "agent/tickets", element: staffOnly(<AgentTicketsPage />) },
 
       // Admin
-      { path: "admin", element: withFallback(<AdminOverviewPage />) },
-      { path: "admin/customers", element: withFallback(<AdminCustomersPage />) },
-      { path: "admin/orders", element: withFallback(<AdminOrdersPage />) },
-      { path: "admin/tickets", element: withFallback(<AdminTicketsPage />) },
-      { path: "admin/agents", element: withFallback(<AdminAgentsPage />) },
-      { path: "admin/knowledge", element: withFallback(<AdminKnowledgePage />) },
-      { path: "admin/analytics", element: withFallback(<AdminAnalyticsPage />) },
-      { path: "admin/monitoring", element: withFallback(<AdminMonitoringPage />) },
+      { path: "admin", element: adminOnly(<AdminOverviewPage />) },
+      { path: "admin/customers", element: adminOnly(<AdminCustomersPage />) },
+      { path: "admin/orders", element: adminOnly(<AdminOrdersPage />) },
+      { path: "admin/tickets", element: adminOnly(<AdminTicketsPage />) },
+      { path: "admin/agents", element: adminOnly(<AdminAgentsPage />) },
+      { path: "admin/knowledge", element: adminOnly(<AdminKnowledgePage />) },
+      { path: "admin/analytics", element: adminOnly(<AdminAnalyticsPage />) },
+      { path: "admin/monitoring", element: adminOnly(<AdminMonitoringPage />) },
 
       // Shared
       { path: "profile", element: withFallback(<ProfilePage />) },

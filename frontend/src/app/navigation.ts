@@ -101,3 +101,9 @@ export const homePath: Record<Role, string> = {
   SUPPORT_AGENT: "/agent",
   ADMIN: "/admin",
 }
+
+export const roleLabel: Record<Role, string> = {
+  CUSTOMER: "Customer",
+  SUPPORT_AGENT: "Support agent",
+  ADMIN: "Administrator",
+}

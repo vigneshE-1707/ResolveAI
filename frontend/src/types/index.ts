@@ -87,6 +87,29 @@ export interface Order {
   returnWindowEndsAt: string | null
 }
 
+export interface ShipmentSummary {
+  carrier: string
+  trackingNumber: string
+  status: ShipmentStatus
+  estimatedDeliveryAt: string | null
+  lastEventDesc: string | null
+}
+
+/** Lightweight order shape used by list/card surfaces. */
+export interface OrderSummary {
+  id: string
+  orderNumber: string
+  status: OrderStatus
+  placedAt: string
+  totalCents: number
+  currency: string
+  itemCount: number
+  lineCount: number
+  firstItemName: string | null
+  customerName: string | null
+  shipment: ShipmentSummary | null
+}
+
 export interface Ticket {
   id: string
   ticketNumber: string

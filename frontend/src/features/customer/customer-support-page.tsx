@@ -11,36 +11,89 @@ import { HeroBanner } from "@/components/chat/hero-banner"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
-import { useRole } from "@/app/role-context"
-import {
-  activity,
-  conversations,
-  customerOrders,
-  customerTickets,
-  customers,
-  messagesByConversation,
-} from "@/mocks/data"
+import { useRole } from "@/app/auth-context"
+import { useConversationMessages, useMyAddresses, useMyConversations, useMyOrders, useMyTickets } from "@/lib/api/hooks"
 import { useDemoChat } from "@/features/customer/use-demo-chat"
+import { timeAgo } from "@/lib/format"
 import { conversationModeTone } from "@/lib/status"
+import type { ActivityItem, Conversation, Customer } from "@/types"
+
+const DRAFT_CONVERSATION: Omit<Conversation, "customerId"> = {
+  id: "draft",
+  subject: "New conversation",
+  mode: "ai",
+  status: "open",
+  assignedAgentId: null,
+  escalationReason: null,
+  lastMessagePreview: "Start a conversation with the assistant",
+  lastMessageAt: new Date().toISOString(),
+  unread: false,
+  aiHandled: true,
+  messageCount: 0,
+}
 
 export function CustomerSupportPage() {
   const { user } = useRole()
-  const customerId = user.customerId ?? "cus_01"
-  const customer = customers.find((c) => c.id === customerId) ?? customers[0]
-  const myOrders = customerOrders(customer.id)
-  const myTickets = customerTickets(customer.id)
-  const myConversations = conversations.filter((c) => c.customerId === customer.id)
-  const [activeConversationId, setActiveConversationId] = useState(myConversations[0]?.id ?? "conv_01")
-  const activeConversation = myConversations.find((c) => c.id === activeConversationId) ?? myConversations[0]
-  const conversationId = activeConversation?.id ?? "conv_01"
-  const seededMessages = useMemo(
-    () => messagesByConversation[conversationId] ?? [],
-    [conversationId]
-  )
-  const { messages, typing, send } = useDemoChat(conversationId, seededMessages)
+  const ordersQuery = useMyOrders()
+  const ticketsQuery = useMyTickets()
+  const conversationsQuery = useMyConversations()
+  const addresses = useMyAddresses()
+
+  const orders = ordersQuery.data?.data ?? []
+  const tickets = ticketsQuery.data?.data ?? []
+  const conversations = conversationsQuery.data?.data ?? []
+  const defaultAddress = addresses.data?.find((address) => address.isDefault) ?? addresses.data?.[0]
+
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>()
+  const activeConversation =
+    conversations.find((conversation) => conversation.id === activeConversationId) ?? conversations[0]
+  const conversation: Conversation = activeConversation ?? {
+    ...DRAFT_CONVERSATION,
+    customerId: user.customerId ?? user.id,
+  }
+  const isDraft = !activeConversation
+  const messagesQuery = useConversationMessages(activeConversation?.id)
+  const seededMessages = useMemo(() => messagesQuery.data?.data ?? [], [messagesQuery.data])
+  const { messages, typing, send } = useDemoChat(conversation.id, seededMessages)
   const [orderUpdates, setOrderUpdates] = useState(true)
+
+  const profile: Customer = {
+    id: user.customerId ?? user.id,
+    fullName: user.fullName,
+    email: user.email,
+    phone: "",
+    initials: user.initials,
+    loyaltyTier: "standard",
+    memberSince: "",
+    totalOrders: ordersQuery.data?.total ?? orders.length,
+    activeTickets: tickets.filter((ticket) =>
+      ["open", "in_progress", "pending_customer"].includes(ticket.status)
+    ).length,
+    city: defaultAddress?.city ?? "",
+    country: defaultAddress?.country ?? "",
+  }
+
+  const activity: ActivityItem[] = [
+    ...orders.slice(0, 2).map((order) => ({
+      id: `order-${order.id}`,
+      icon: "order" as const,
+      label: `Order ${order.orderNumber} · ${order.status}`,
+      timestamp: timeAgo(order.placedAt),
+      minutesAgo: 0,
+      href: `/orders/${order.orderNumber}`,
+    })),
+    ...tickets.slice(0, 2).map((ticket) => ({
+      id: `ticket-${ticket.id}`,
+      icon: "ticket" as const,
+      label: `${ticket.ticketNumber} · ${ticket.subject}`,
+      timestamp: timeAgo(ticket.createdAt),
+      minutesAgo: 0,
+      href: `/tickets/${ticket.ticketNumber}`,
+    })),
+  ]
 
   return (
     <div>
@@ -49,21 +102,21 @@ export function CustomerSupportPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 space-y-3">
           <ChatPanel
-            conversation={activeConversation}
+            conversation={conversation}
             messages={messages}
             typing={typing}
             onSend={send}
             onSuggestion={send}
-            orders={myOrders}
-            tickets={myTickets}
+            orders={orders}
+            tickets={tickets}
             className="h-[620px]"
             headerExtra={
               <StatusBadge
-                tone={{ label: "Live chat", variant: "success", dot: "bg-emerald-500" }}
+                tone={{ label: "Simulated replies", variant: "warning", dot: "bg-amber-500" }}
                 className="hidden md:flex"
               />
             }
-            footerNote="Demo mode · replies are simulated from mock data until the LangGraph agent is connected in Milestone 4"
+            footerNote="Demo mode · replies are simulated from local data until the LangGraph agent is connected in Milestone 4"
           />
 
           <Card>
@@ -79,10 +132,12 @@ export function CustomerSupportPage() {
               </Link>
             </CardHeader>
             <CardContent className="pt-2">
-              {myConversations.length > 0 ? (
+              {conversationsQuery.isLoading ? (
+                <Skeleton className="h-16 rounded-lg" />
+              ) : conversations.length > 0 ? (
                 <ConversationList
-                  conversations={myConversations}
-                  activeId={activeConversationId}
+                  conversations={conversations}
+                  activeId={conversation.id}
                   onSelect={setActiveConversationId}
                 />
               ) : (
@@ -95,9 +150,9 @@ export function CustomerSupportPage() {
         </div>
 
         <div className="space-y-3">
-          <CustomerProfileCard customer={customer} />
+          <CustomerProfileCard customer={profile} lastOrderAt={orders[0]?.placedAt} />
           <QuickActions />
-          <ActivityTimeline items={activity.slice(0, 4)} showViewAll={false} />
+          {activity.length > 0 && <ActivityTimeline items={activity} showViewAll={false} />}
 
           <Card>
             <CardContent className="flex items-center justify-between gap-3 pt-4">
@@ -132,18 +187,34 @@ export function CustomerSupportPage() {
             </Link>
           </Button>
         </div>
-        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
-          {myOrders.slice(0, 3).map((order) => (
-            <OrderCard key={order.id} order={order} compact />
-          ))}
-        </div>
+        {ordersQuery.isLoading ? (
+          <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Skeleton key={index} className="h-[88px] rounded-xl" />
+            ))}
+          </div>
+        ) : orders.length === 0 ? (
+          <p className="rounded-xl border border-border bg-card px-3 py-4 text-center text-[12px] text-muted-foreground">
+            No orders on your account yet.
+          </p>
+        ) : (
+          <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+            {orders.slice(0, 3).map((order) => (
+              <OrderCard key={order.id} order={order} compact />
+            ))}
+          </div>
+        )}
       </div>
 
-      {activeConversation && (
+      {!isDraft && (
         <p className="mt-3 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
           <ShieldCheck className="size-3" />
           AI actions are scoped to your account. Business operations require confirmation.
-          <StatusBadge tone={conversationModeTone[activeConversation.mode]} withDot={false} className="ml-1 h-4 px-1.5 text-[9.5px]" />
+          <StatusBadge
+            tone={conversationModeTone[conversation.mode]}
+            withDot={false}
+            className="ml-1 h-4 px-1.5 text-[9.5px]"
+          />
         </p>
       )}
     </div>

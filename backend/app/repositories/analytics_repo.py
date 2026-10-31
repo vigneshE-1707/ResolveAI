@@ -94,8 +94,10 @@ class StatsRepository:
         open_tickets = (await self.session.execute(select(func.count()).select_from(SupportTicket).where(SupportTicket.status.in_(["open", "in_progress"])))).scalar() or 0
         return {"total_conversations": total_conv, "active_conversations": active_conv, "escalated": escalated, "open_tickets": open_tickets}
 
-    async def get_agent_stats(self, agent_id: uuid.UUID) -> dict:
+    async def get_agent_stats(self, agent_id: uuid.UUID | None) -> dict:
         open_conv = (await self.session.execute(select(func.count()).select_from(Conversation).where(Conversation.status == "open"))).scalar() or 0
         pending_conv = (await self.session.execute(select(func.count()).select_from(Conversation).where(Conversation.mode == "human_pending"))).scalar() or 0
-        my_active = (await self.session.execute(select(func.count()).select_from(Conversation).where(Conversation.assigned_agent_id == agent_id, Conversation.status.in_(["open", "escalated"])))).scalar() or 0
+        my_active = 0
+        if agent_id is not None:
+            my_active = (await self.session.execute(select(func.count()).select_from(Conversation).where(Conversation.assigned_agent_id == agent_id, Conversation.status.in_(["open", "escalated"])))).scalar() or 0
         return {"open_conversations": open_conv, "pending_conversations": pending_conv, "my_active": my_active}

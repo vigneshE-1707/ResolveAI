@@ -1,17 +1,15 @@
-import { NavLink } from "react-router-dom"
+import { NavLink, useNavigate } from "react-router-dom"
 import {
   ChevronLeft,
   ChevronRight,
   Headset,
-  ShieldCheck,
+  LogOut,
   Sparkles,
-  Users,
 } from "lucide-react"
 
-import { navigationByRole } from "@/app/navigation"
-import { roleLabel, useRole } from "@/app/role-context"
+import { useAuth, useRole } from "@/app/auth-context"
+import { navigationByRole, roleLabel } from "@/app/navigation"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -23,7 +21,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import type { Role } from "@/types"
 
 interface AppSidebarProps {
   collapsed?: boolean
@@ -36,7 +33,9 @@ export function AppSidebar({
   onToggleCollapsed,
   onNavigate,
 }: AppSidebarProps) {
-  const { role, user, setRole } = useRole()
+  const { role, user } = useRole()
+  const { logout } = useAuth()
+  const navigate = useNavigate()
   const groups = navigationByRole[role]
   const isAdmin = role === "ADMIN"
 
@@ -184,19 +183,14 @@ export function AppSidebar({
               <p className="truncate text-[11px] text-muted-foreground">{user.email}</p>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="flex items-center gap-1.5">
-              <Users className="size-3" /> Preview as
-            </DropdownMenuLabel>
-            {(["CUSTOMER", "SUPPORT_AGENT", "ADMIN"] as Role[]).map((r) => (
-              <DropdownMenuItem key={r} onSelect={() => setRole(r)} className="justify-between">
-                <span>{roleLabel[r]}</span>
-                {role === r && <Badge variant="secondary">Current</Badge>}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled className="gap-2">
-              <ShieldCheck className="size-4" />
-              Sign out (after M3)
+            <DropdownMenuItem
+              className="gap-2"
+              onSelect={() => {
+                void logout().then(() => navigate("/login", { replace: true }))
+              }}
+            >
+              <LogOut className="size-4" />
+              Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -29,6 +29,9 @@ class AdminService:
         self.audit_repo = AuditLogRepository(session)
 
     async def create_user(self, email: str, password: str, full_name: str, role: str) -> User:
+        from app.services.auth_service import AuthService
+
+        AuthService._validate_password(password)
         existing = await self.user_repo.get_by_email(email)
         if existing:
             raise DuplicateError("An account with this email already exists")
@@ -45,11 +48,27 @@ class AdminService:
         return await self.user_repo.list_users(**kwargs)
 
     async def update_user(self, user_id: uuid.UUID, **kwargs) -> User:
-        user = await self.user_repo.update_user(user_id, **kwargs)
+        user = await self.user_repo.get_by_id(user_id)
         if not user:
             raise NotFoundError("User")
+
+        previous_role = user.role
+        updated = await self.user_repo.update_user(user_id, **kwargs)
+        if not updated:
+            raise NotFoundError("User")
+
+        # A role change must keep the profile row consistent, otherwise the
+        # next login cannot resolve customer_id/agent_id.
+        if updated.role != previous_role:
+            if updated.role == "CUSTOMER" and not await self.customer_repo.get_by_user_id(updated.id):
+                await self.customer_repo.create(Customer(user_id=updated.id))
+            elif updated.role == "SUPPORT_AGENT" and not await self.agent_repo.get_by_user_id(updated.id):
+                await self.agent_repo.create(
+                    SupportAgent(user_id=updated.id, display_name=updated.full_name)
+                )
+
         await self.session.commit()
-        return user
+        return updated
 
     async def reset_password(self, user_id: uuid.UUID) -> str:
         temp_password = secrets.token_urlsafe(16)

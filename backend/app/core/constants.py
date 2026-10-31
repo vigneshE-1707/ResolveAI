@@ -31,6 +31,9 @@ MESSAGE_CONTENT_TYPES = {"text", "card", "system_note"}
 
 # Return request statuses
 RETURN_STATUSES = {"requested", "approved", "rejected", "refunded", "closed"}
+RETURN_REASON_CODES = {
+    "wrong_item", "damaged", "not_as_described", "changed_mind", "late_delivery", "other",
+}
 
 # Knowledge
 KNOWLEDGE_CATEGORIES = {"returns", "refunds", "shipping", "cancellation", "warranty", "faq"}

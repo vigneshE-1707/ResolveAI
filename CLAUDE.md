@@ -44,8 +44,9 @@ resolveai/
 │   └── pyproject.toml
 ├── frontend/                # React app (see frontend/README for details)
 │   └── src/{app,features,components,lib,types}
-├── docs/                    # requirements.md, api-design.md, ui-design.md
+├── docs/                    # requirements.md, api-design.md
 ├── scripts/                 # dev helpers
+├── docker-compose.yml       # local Postgres 16 + pgvector
 ├── .env.example
 ├── ARCHITECTURE.md / ROADMAP.md / README.md / CLAUDE.md
 ```
@@ -100,9 +101,11 @@ resolveai/
 
 ```bash
 # backend (from Milestone 3)
-cd backend && uv run pytest -q                 # or: python -m pytest -q
-python -m pytest tests/integration -q          # needs local Postgres running
-python scripts/seed_demo.py                    # deterministic demo data
+cd backend
+.venv/Scripts/python.exe -m pytest -q            # Windows
+.venv/bin/python -m pytest -q                    # macOS/Linux
+.venv/Scripts/python.exe -m pytest tests/integration -q   # needs Docker Postgres running
+.venv/Scripts/python.exe scripts/seed_demo.py --reset    # deterministic demo data
 # mcp server (from Milestone 5)
 cd backend && python -m app.mcp_server.main
 ```

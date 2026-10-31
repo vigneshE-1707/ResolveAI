@@ -5,7 +5,7 @@ import { StatusBadge } from "@/components/shared/status-badge"
 import { formatCurrency, formatDate } from "@/lib/format"
 import { orderStatusTone, shipmentStatusTone } from "@/lib/status"
 import { cn } from "@/lib/utils"
-import type { Order } from "@/types"
+import type { OrderSummary } from "@/types"
 
 function ItemThumb({ name }: { name: string }) {
   const tone = name.toLowerCase().includes("phone")
@@ -30,9 +30,15 @@ function ItemThumb({ name }: { name: string }) {
   )
 }
 
-export function OrderCard({ order, compact = false }: { order: Order; compact?: boolean }) {
-  const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0)
-  const firstItem = order.items[0]
+export function OrderCard({
+  order,
+  compact = false,
+}: {
+  order: OrderSummary
+  compact?: boolean
+}) {
+  const firstItemName = order.firstItemName ?? "Order items"
+  const extraLines = Math.max(order.lineCount - 1, 0)
 
   return (
     <Link
@@ -43,7 +49,7 @@ export function OrderCard({ order, compact = false }: { order: Order; compact?: 
       )}
     >
       <div className="flex items-start gap-3">
-        <ItemThumb name={firstItem?.name ?? "item"} />
+        <ItemThumb name={firstItemName} />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -51,9 +57,9 @@ export function OrderCard({ order, compact = false }: { order: Order; compact?: 
                 #{order.orderNumber}
               </p>
               <p className="mt-0.5 truncate text-[13.5px] font-semibold text-slate-800">
-                {firstItem?.name}
-                {order.items.length > 1 && (
-                  <span className="font-normal text-muted-foreground"> +{order.items.length - 1} more</span>
+                {firstItemName}
+                {extraLines > 0 && (
+                  <span className="font-normal text-muted-foreground"> +{extraLines} more</span>
                 )}
               </p>
             </div>
@@ -64,15 +70,15 @@ export function OrderCard({ order, compact = false }: { order: Order; compact?: 
             <span>Placed {formatDate(order.placedAt, "MMM d")}</span>
             <span className="text-slate-300">•</span>
             <span>
-              {itemCount} item{itemCount === 1 ? "" : "s"}
+              {order.itemCount} item{order.itemCount === 1 ? "" : "s"}
             </span>
             <span className="text-slate-300">•</span>
             <span className="font-semibold text-slate-700">{formatCurrency(order.totalCents, order.currency)}</span>
-            {order.shipment?.estimatedDelivery && order.status === "shipped" && (
+            {order.shipment?.estimatedDeliveryAt && order.status === "shipped" && (
               <>
                 <span className="text-slate-300">•</span>
                 <span className="inline-flex items-center gap-1 text-blue-600">
-                  <Truck className="size-3" /> ETA {formatDate(order.shipment.estimatedDelivery, "MMM d")}
+                  <Truck className="size-3" /> ETA {formatDate(order.shipment.estimatedDeliveryAt, "MMM d")}
                 </span>
               </>
             )}

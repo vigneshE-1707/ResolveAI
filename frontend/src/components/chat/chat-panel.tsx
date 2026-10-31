@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { conversationModeTone } from "@/lib/status"
 import { cn } from "@/lib/utils"
-import type { ChatMessage, Conversation, Order, Ticket as TicketType } from "@/types"
+import type { ChatMessage, Conversation, OrderSummary, Ticket as TicketType } from "@/types"
 import { TicketCard } from "@/components/cards/ticket-card"
 
 type ChatTab = "chat" | "tickets" | "orders"
@@ -21,7 +21,7 @@ interface ChatPanelProps {
   typing?: boolean
   onSend: (value: string) => void
   onSuggestion?: (value: string) => void
-  orders?: Order[]
+  orders?: OrderSummary[]
   tickets?: TicketType[]
   className?: string
   composerHint?: string
@@ -52,7 +52,7 @@ export function ChatPanel({
     return orders.filter(
       (o) =>
         o.orderNumber.toLowerCase().includes(q) ||
-        o.items.some((item) => item.name.toLowerCase().includes(q))
+        (o.firstItemName?.toLowerCase().includes(q) ?? false)
     )
   }, [orderQuery, orders])
 

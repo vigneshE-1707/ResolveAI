@@ -1,35 +1,63 @@
 import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, CalendarClock, Headset, Send, TicketX } from "lucide-react"
-import { toast } from "sonner"
 
 import { EmptyState } from "@/components/feedback/states"
 import { PageHeader } from "@/components/layout/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { Separator } from "@/components/ui/separator"
+import { ApiError } from "@/lib/api/client"
+import { useMyTicket } from "@/lib/api/hooks"
 import { formatDateShort } from "@/lib/format"
 import { priorityTone, ticketCategoryLabel, ticketStatusTone } from "@/lib/status"
-import { findTicket } from "@/mocks/data"
 
 export function CustomerTicketDetailPage() {
   const { ticketNumber } = useParams<{ ticketNumber: string }>()
-  const ticket = ticketNumber ? findTicket(ticketNumber) : undefined
+  const ticketQuery = useMyTicket(ticketNumber)
+  const ticket = ticketQuery.data
 
-  if (!ticket) {
+  if (ticketQuery.isLoading) {
+    return (
+      <div className="space-y-3" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Loading ticket…</span>
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-8 w-72" />
+        <Skeleton className="h-4 w-80" />
+        <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <Skeleton className="h-56 rounded-xl" />
+          <Skeleton className="h-56 rounded-xl" />
+        </div>
+      </div>
+    )
+  }
+
+  if (ticketQuery.isError || !ticket) {
+    const notFound = ticketQuery.error instanceof ApiError && ticketQuery.error.isNotFound
     return (
       <div className="rounded-xl border border-border bg-card">
         <EmptyState
           icon={TicketX}
-          title="Ticket not found"
-          description={`Ticket ${ticketNumber ?? ""} is not on your account.`}
+          title={notFound ? "Ticket not found" : "Could not load this ticket"}
+          description={
+            notFound
+              ? `Ticket ${ticketNumber ?? ""} is not on your account.`
+              : "The ticket service did not respond. Try again in a moment."
+          }
           action={
-            <Button asChild size="sm" variant="outline">
-              <Link to="/tickets">
-                <ArrowLeft className="size-3.5" /> Back to tickets
-              </Link>
-            </Button>
+            notFound ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/tickets">
+                  <ArrowLeft className="size-3.5" /> Back to tickets
+                </Link>
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => void ticketQuery.refetch()}>
+                Try again
+              </Button>
+            )
           }
         />
       </div>
@@ -63,7 +91,7 @@ export function CustomerTicketDetailPage() {
               <CardTitle>Issue description</CardTitle>
             </CardHeader>
             <CardContent className="pt-0 text-[13px] leading-relaxed text-slate-700">
-              {ticket.description}
+              {ticket.description || "No description was provided."}
               {ticket.escalationReason && (
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11.5px] text-amber-900">
                   <p className="font-semibold">Escalation reason</p>
@@ -82,20 +110,13 @@ export function CustomerTicketDetailPage() {
                 rows={3}
                 placeholder="Share any extra detail with the support team..."
                 id="ticket-reply"
+                disabled
               />
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <p className="text-[10.5px] text-muted-foreground">
-                  Replies persist once the backend lands (Milestone 3).
+                  Customer replies on tickets are not available yet. Use chat to reach the support team.
                 </p>
-                <Button
-                  size="sm"
-                  className="gap-1.5"
-                  onClick={() =>
-                    toast.info("Reply captured locally", {
-                      description: "Backend ticket replies arrive in Milestone 8.",
-                    })
-                  }
-                >
+                <Button size="sm" className="gap-1.5" disabled>
                   <Send className="size-3.5" /> Send reply
                 </Button>
               </div>
@@ -130,7 +151,9 @@ export function CustomerTicketDetailPage() {
               )}
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Assigned</span>
-                <span className="font-medium">{ticket.assignedAgentId ? "Maya Fernandez" : "Unassigned"}</span>
+                <span className="font-medium">
+                  {ticket.assignedAgentId ? "Support agent" : "Unassigned"}
+                </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Updated</span>
@@ -141,7 +164,7 @@ export function CustomerTicketDetailPage() {
               </div>
               <Separator className="my-1" />
               <p className="text-[10.5px] leading-relaxed text-muted-foreground">
-                Status changes and agent replies will appear here once the ticket service is live.
+                Status changes and agent replies appear here as the support team works on your ticket.
               </p>
             </CardContent>
           </Card>

@@ -11,6 +11,18 @@ class ConversationCreate(BaseModel):
     order_number: str | None = None
 
 
+class AgentReplyCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=10000)
+
+
+class AssignRequest(BaseModel):
+    agent_id: str | None = None
+
+
+class ResolveRequest(BaseModel):
+    resolution_note: str | None = Field(default=None, max_length=2000)
+
+
 class ConversationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

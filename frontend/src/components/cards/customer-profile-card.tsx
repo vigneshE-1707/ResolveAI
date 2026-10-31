@@ -10,9 +10,11 @@ import type { Customer } from "@/types"
 
 export function CustomerProfileCard({
   customer,
+  lastOrderAt,
   compact = false,
 }: {
   customer: Customer
+  lastOrderAt?: string | null
   compact?: boolean
 }) {
   return (
@@ -57,7 +59,7 @@ export function CustomerProfileCard({
               Last order
             </p>
             <p className="mt-0.5 truncate text-[13px] font-semibold leading-tight">
-              {formatDate("2026-10-24T09:12:00Z", "MMM d, yyyy")}
+              {lastOrderAt ? formatDate(lastOrderAt, "MMM d, yyyy") : "—"}
             </p>
           </div>
         </div>
@@ -66,22 +68,30 @@ export function CustomerProfileCard({
           <>
             <Separator className="my-3" />
             <div className="space-y-1.5 text-[11.5px] text-muted-foreground">
-              <p className="flex items-center gap-2">
-                <Phone className="size-3.5 text-slate-400" /> {customer.phone}
-              </p>
+              {customer.phone && (
+                <p className="flex items-center gap-2">
+                  <Phone className="size-3.5 text-slate-400" /> {customer.phone}
+                </p>
+              )}
               <p className="flex items-center gap-2">
                 <Mail className="size-3.5 text-slate-400" /> {customer.email}
               </p>
-              <p className="flex items-center gap-2">
-                <MapPin className="size-3.5 text-slate-400" /> {customer.city}, {customer.country}
-              </p>
-              <p className="pl-[22px] text-[10.5px]">
-                Member since {formatDate(customer.memberSince)}
-              </p>
+              {(customer.city || customer.country) && (
+                <p className="flex items-center gap-2">
+                  <MapPin className="size-3.5 text-slate-400" /> {customer.city}
+                  {customer.city && customer.country ? ", " : ""}
+                  {customer.country}
+                </p>
+              )}
+              {customer.memberSince && (
+                <p className="pl-[22px] text-[10.5px]">
+                  Member since {formatDate(customer.memberSince)}
+                </p>
+              )}
             </div>
             <div className="mt-2.5 flex gap-1.5">
               <Link
-                to={`/admin/customers`}
+                to="/profile"
                 className="text-[11px] font-medium text-primary hover:underline"
               >
                 View full profile

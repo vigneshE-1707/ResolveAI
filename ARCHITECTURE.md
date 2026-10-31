@@ -1,6 +1,6 @@
 # ResolveAI — Architecture
 
-**Version:** 1.0 · **Status:** Proposed (Milestone 1, pending approval) · **Date:** 2026-10-30
+**Version:** 1.1 · **Status:** Approved (Milestone 1) · **Updated:** 2026-10-30
 
 ---
 
@@ -160,7 +160,7 @@ support_tickets      (id, ticket_number UNIQUE, customer_id, order_id NULL,
                       delivery_issue,wrong_item,return_request,cancellation,
                       refund,billing,product_quality,other}, description, status
                       CHECK {open,in_progress,pending_customer,resolved,closed},
-                      priority {low,normal,high}, assigned_agent_id NULL,
+                      priority CHECK {low,normal,high,urgent}, assigned_agent_id NULL,
                       escalation_reason, created_at, first_response_at,
                       resolved_at, resolution_note, idempotency_key)
 conversations        (id, customer_id, channel {web}, subject, mode {ai,human,human_pending},
@@ -413,6 +413,27 @@ frontend/src/
 | Stale embeddings after doc edit                | wrong answers        | knowledge_documents.version + regenerate on update + only `status=ready` searchable                                                                            |
 | Over-engineering                               | slows delivery       | skip Redis/microservices; horizontal scale documented, built later only if needed                                                                                |
 
+## 14. Implementation notes (Milestone 3)
+
+Decisions made while building the backend, kept here so the contract and the code stay aligned:
+
+- **Ticket numbers** come from the Postgres sequence `support_ticket_number_seq`, not a row count —
+  two concurrent creates can never receive the same number.
+- **Email uniqueness** is enforced case-insensitively by a functional unique index
+  `uq_users_email_lower`; the ORM also normalises to lowercase on write.
+- **Constraints and indexes** live in the corrective migration
+  `8f2c1a9d4b10_harden_constraints_indexes.py` (status/priority/category CHECKs, composite indexes,
+  ticket sequence). `upgrade → downgrade → upgrade` is verified.
+- **Sessions are DB-verified.** Access tokens carry `session_version`; logout and password reset bump
+  it, so a still-valid JWT is rejected. `is_active` is checked on every request.
+- **Return eligibility is deterministic** and lives in a pure function: delivered only, 30 days from
+  delivery (configurable via `RETURN_WINDOW_DAYS`), no second active return.
+- **Idempotency** is enforced by `idempotency_keys` plus `UNIQUE(idempotency_key)` on
+  `support_tickets` / `return_requests`; replays return the original resource.
+- **Wire format stays snake_case.** The frontend maps to camelCase in its API client instead of
+  forcing a backend-wide renaming.
+- **SQL echo is opt-in** (`DB_ECHO=false` by default) because statements can contain PII.
+
 ---
 
-*Status: proposed. Awaiting approval to begin implementation (Milestone 2).*
+*Status: approved; implemented through Milestone 3 backend (see `ROADMAP.md` for live status).*

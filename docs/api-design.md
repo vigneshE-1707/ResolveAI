@@ -17,7 +17,7 @@ Base URL: `/api/v1` · Auth: `Authorization: Bearer <access JWT>` (except `/auth
 ```
 HEALTH
 GET   /healthz                          liveness (no auth, DB-less)
-GET   /readyz                           readiness: DB, MCP server ping, LLM key present
+GET   /readyz                           readiness: database connectivity
 
 AUTH
 POST  /auth/register                    {email, password, full_name}            → 201 user+tokens
@@ -37,6 +37,7 @@ POST  /me/tickets                        direct creation (no agent) if desired
 GET   /me/conversations                 list mine
 POST  /me/conversations                 open new {subject, order_number?}
 GET   /me/returns                       list mine
+POST  /me/returns                       {order_number, reason_code, reason_text?} → 201 (idempotent)
 
 RESS (role CUSTOMER)
 POST  /conversations/:id/chat           SSE stream of turn; body {message, turn_id}
@@ -55,7 +56,7 @@ POST  /agent/conversations/:id/assign   {agent_id?} unassign if body omitted
 POST  /agent/conversations/:id/takeover flips mode ai→human (explicit, audited)
 POST  /agent/conversations/:id/resolve  {resolution_note} closes; emits event
 GET   /agent/tickets                    list (filters)
-PATCH /agent/tickets/:ticket_number      {status?, priority?, assigned_agent_id?, note?}
+PATCH /agent/tickets/:ticket_number      {status?, priority?, assigned_agent_id?, resolution_note?}
 POST  /agent/conversations/:id/reopen   re-enable AI (explicit action, audited)
 
 RESD (role ADMIN)

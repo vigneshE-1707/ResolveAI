@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Link } from "react-router-dom"
 import { Headset, PackageSearch } from "lucide-react"
 
@@ -6,8 +6,8 @@ import { OrderCard } from "@/components/cards/order-card"
 import { EmptyState } from "@/components/feedback/states"
 import { PageHeader } from "@/components/layout/page-header"
 import { Button } from "@/components/ui/button"
-import { useRole } from "@/app/role-context"
-import { customerOrders } from "@/mocks/data"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useMyOrders } from "@/lib/api/hooks"
 import { cn } from "@/lib/utils"
 
 const filters = [
@@ -18,8 +18,8 @@ const filters = [
 ] as const
 
 export function CustomerOrdersPage() {
-  const { user } = useRole()
-  const orders = useMemo(() => customerOrders(user.customerId ?? "cus_01"), [user.customerId])
+  const ordersQuery = useMyOrders()
+  const orders = ordersQuery.data?.data ?? []
   const [filter, setFilter] = useState<(typeof filters)[number]["id"]>("all")
 
   const visible = orders.filter((order) => {
@@ -70,7 +70,27 @@ export function CustomerOrdersPage() {
         })}
       </div>
 
-      {visible.length === 0 ? (
+      {ordersQuery.isLoading ? (
+        <div className="grid gap-2.5 lg:grid-cols-2" aria-busy="true" aria-live="polite">
+          <span className="sr-only">Loading orders…</span>
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-[88px] rounded-xl" />
+          ))}
+        </div>
+      ) : ordersQuery.isError ? (
+        <div className="rounded-xl border border-border bg-card">
+          <EmptyState
+            icon={PackageSearch}
+            title="Could not load your orders"
+            description="The order service did not respond. Check your connection and try again."
+            action={
+              <Button size="sm" variant="outline" onClick={() => void ordersQuery.refetch()}>
+                Try again
+              </Button>
+            }
+          />
+        </div>
+      ) : visible.length === 0 ? (
         <div className="rounded-xl border border-border bg-card">
           <EmptyState
             icon={PackageSearch}

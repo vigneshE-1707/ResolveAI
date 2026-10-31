@@ -1,15 +1,21 @@
 import { useState } from "react"
-import { Bell, Database, Globe, Lock, Palette, Sparkles } from "lucide-react"
+import { Bell, Database, Globe, Lock, Palette, ServerCog, Sparkles } from "lucide-react"
 import { toast } from "sonner"
 
 import { PageHeader } from "@/components/layout/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { apiBaseUrl, isDemoMode } from "@/lib/env"
+import { useRole } from "@/app/auth-context"
+import { useAdminSettings } from "@/lib/api/hooks"
+import { apiBaseUrl } from "@/lib/env"
 
 export function SettingsPage() {
+  const { role } = useRole()
+  const isAdmin = role === "ADMIN"
+  const platform = useAdminSettings({ enabled: isAdmin })
   const [emailUpdates, setEmailUpdates] = useState(true)
   const [productNews, setProductNews] = useState(false)
   const [aiSuggestions, setAiSuggestions] = useState(true)
@@ -20,7 +26,7 @@ export function SettingsPage() {
         eyebrow="Workspace"
         title="Settings"
         description="Environment, notifications, and platform configuration."
-        actions={<Badge variant={isDemoMode ? "warning" : "success"}>{isDemoMode ? "Demo mode" : "Live mode"}</Badge>}
+        actions={<Badge variant="success">Live API</Badge>}
       />
 
       <div className="grid gap-3.5 lg:grid-cols-2">
@@ -38,9 +44,7 @@ export function SettingsPage() {
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border bg-slate-50/60 px-2.5 py-2">
               <span className="text-muted-foreground">Data source</span>
-              <Badge variant={isDemoMode ? "warning" : "success"}>
-                {isDemoMode ? "Local mock fixtures" : "Backend API"}
-              </Badge>
+              <Badge variant="success">Backend API</Badge>
             </div>
             <div className="flex items-center justify-between rounded-lg border border-border bg-slate-50/60 px-2.5 py-2">
               <span className="text-muted-foreground">Router / build</span>
@@ -54,7 +58,7 @@ export function SettingsPage() {
             <CardTitle className="flex items-center gap-1.5 text-[14px]">
               <Bell className="size-4 text-slate-400" /> Notifications
             </CardTitle>
-            <CardDescription>Applies to this browser profile (local only in M2).</CardDescription>
+            <CardDescription>Applies to this browser profile only; nothing is persisted yet.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 pt-0">
             {[
@@ -98,11 +102,11 @@ export function SettingsPage() {
             <CardTitle className="flex items-center gap-1.5 text-[14px]">
               <Database className="size-4 text-slate-400" /> Data & integrations
             </CardTitle>
-            <CardDescription>Backend services arrive in Milestone 3+.</CardDescription>
+            <CardDescription>Implementation status across the roadmap.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 pt-0 text-[11.5px]">
             {[
-              { name: "PostgreSQL + pgvector", status: "Milestone 3" },
+              { name: "PostgreSQL + pgvector", status: "Implemented" },
               { name: "LangGraph agent", status: "Milestone 4" },
               { name: "MCP business tools", status: "Milestone 5" },
               { name: "LangSmith tracing", status: "Milestone 4 / 9" },
@@ -117,20 +121,66 @@ export function SettingsPage() {
           </CardContent>
         </Card>
 
+        {isAdmin && (
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-1.5 text-[14px]">
+                <ServerCog className="size-4 text-slate-400" /> Platform configuration
+              </CardTitle>
+              <CardDescription>Server-side settings reported by `/admin/settings`.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-2 pt-0 text-[12px] sm:grid-cols-2">
+              {platform.isLoading ? (
+                <>
+                  <Skeleton className="h-8 rounded-md" />
+                  <Skeleton className="h-8 rounded-md" />
+                </>
+              ) : platform.isError ? (
+                <p className="text-[11.5px] text-muted-foreground">Could not load platform settings.</p>
+              ) : (
+                <>
+                  {[
+                    { label: "Environment", value: platform.data?.app_env ?? "—" },
+                    { label: "LLM provider", value: platform.data?.llm_provider ?? "—" },
+                    { label: "LLM model", value: platform.data?.llm_model ?? "—" },
+                    {
+                      label: "LangSmith tracing",
+                      value: platform.data?.langsmith_tracing ? "Enabled" : "Disabled",
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="flex items-center justify-between rounded-lg border border-border bg-slate-50/60 px-2.5 py-2"
+                    >
+                      <span className="text-muted-foreground">{item.label}</span>
+                      <span className="font-mono text-[10.5px]">{item.value}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <Card className="lg:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-1.5 text-[14px]">
               <Lock className="size-4 text-slate-400" /> Security
             </CardTitle>
             <CardDescription>
-              Authentication and session management are implemented in Milestone 3 (JWT + argon2).
+              JWT access tokens with rotating HttpOnly refresh cookies and argon2id password hashing.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap items-center justify-between gap-2 pt-0">
             <p className="text-[11.5px] text-muted-foreground">
-              Demo role switching is local-only and never grants real access.
+              Sessions are verified against the database on every request. Sign out from the account menu.
             </p>
-            <Button variant="outline" size="sm" disabled onClick={() => toast.info("Available after Milestone 3")}>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled
+              onClick={() => toast.info("Session management is not available yet")}
+            >
               Manage sessions
             </Button>
           </CardContent>

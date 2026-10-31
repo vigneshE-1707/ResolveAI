@@ -1,19 +1,17 @@
 import { useEffect, useRef, useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import {
   Bell,
-  CheckCheck,
   LogOut,
   Menu,
   Search,
   Settings,
-  ShieldCheck,
   Sparkles,
-  Users,
 } from "lucide-react"
 import { toast } from "sonner"
 
-import { roleLabel, useRole } from "@/app/role-context"
+import { useAuth, useRole } from "@/app/auth-context"
+import { roleLabel } from "@/app/navigation"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -28,7 +26,6 @@ import {
 import { Input } from "@/components/ui/input"
 import { isDemoMode } from "@/lib/env"
 import { cn } from "@/lib/utils"
-import type { Role } from "@/types"
 
 const notifications = [
   {
@@ -55,7 +52,9 @@ const notifications = [
 ]
 
 export function TopNavbar({ onOpenMobile }: { onOpenMobile: () => void }) {
-  const { role, user, setRole } = useRole()
+  const { role, user } = useRole()
+  const { logout } = useAuth()
+  const navigate = useNavigate()
   const [search, setSearch] = useState("")
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -187,25 +186,17 @@ export function TopNavbar({ onOpenMobile }: { onOpenMobile: () => void }) {
               </Badge>
             </div>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel className="flex items-center gap-1.5">
-              <Users className="size-3" /> Preview portal
-            </DropdownMenuLabel>
-            {(["CUSTOMER", "SUPPORT_AGENT", "ADMIN"] as Role[]).map((r) => (
-              <DropdownMenuItem key={r} onSelect={() => setRole(r)} className="justify-between">
-                <span>{roleLabel[r]}</span>
-                {role === r && <CheckCheck className="size-3.5 text-primary" />}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link to="/settings" className="gap-2">
                 <Settings className="size-4" /> Settings
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled className="gap-2">
-              <ShieldCheck className="size-4" /> Sign out after Milestone 3
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled className="gap-2">
+            <DropdownMenuItem
+              className="gap-2"
+              onSelect={() => {
+                void logout().then(() => navigate("/login", { replace: true }))
+              }}
+            >
               <LogOut className="size-4" /> Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>

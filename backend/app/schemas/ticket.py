@@ -27,6 +27,7 @@ class TicketOut(BaseModel):
     ticket_number: str
     customer_id: str
     order_id: str | None = None
+    order_number: str | None = None
     subject: str
     category: str
     description: str | None = None

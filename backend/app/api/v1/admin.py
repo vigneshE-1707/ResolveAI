@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import CurrentUser, get_db, require_role
+from app.schemas.order import OrderStatusUpdate
 from app.schemas.user import AdminUserCreate, AdminUserUpdate, AdminAgentUpdate
 from app.schemas.product import ProductCreate, ProductUpdate
 from app.schemas.knowledge import KnowledgeDocumentCreate
 from app.services.admin_service import AdminService
+from app.services.audit_service import AuditService
 from app.services.order_service import OrderService
 from app.services.ticket_service import TicketService
 
@@ -33,7 +35,7 @@ async def overview_stats(
 @router.get("/users")
 async def list_users(
     role: str | None = None, q: str | None = None,
-    page: int = 1, page_size: int = 20,
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -51,6 +53,15 @@ async def create_user(
 ):
     svc = AdminService(db)
     new_user = await svc.create_user(body.email, body.password, body.full_name, body.role)
+    await AuditService(db).record(
+        actor_user_id=user.user_id,
+        actor_role=user.role,
+        action="user.created",
+        entity_type="user",
+        entity_id=new_user.id,
+        meta={"role": new_user.role},
+    )
+    await db.commit()
     return {"id": str(new_user.id), "email": new_user.email, "role": new_user.role}
 
 
@@ -62,6 +73,15 @@ async def update_user(
 ):
     svc = AdminService(db)
     updated = await svc.update_user(user_id, **body.model_dump(exclude_unset=True))
+    await AuditService(db).record(
+        actor_user_id=user.user_id,
+        actor_role=user.role,
+        action="user.updated",
+        entity_type="user",
+        entity_id=updated.id,
+        meta={"fields": sorted(body.model_dump(exclude_unset=True).keys())},
+    )
+    await db.commit()
     return {"id": str(updated.id), "email": updated.email, "role": updated.role, "is_active": updated.is_active}
 
 
@@ -73,6 +93,14 @@ async def reset_password(
 ):
     svc = AdminService(db)
     temp_pw = await svc.reset_password(user_id)
+    await AuditService(db).record(
+        actor_user_id=user.user_id,
+        actor_role=user.role,
+        action="user.password_reset",
+        entity_type="user",
+        entity_id=user_id,
+    )
+    await db.commit()
     return {"temporary_password": temp_pw}
 
 
@@ -81,7 +109,7 @@ async def reset_password(
 @router.get("/products")
 async def list_products(
     category: str | None = None, q: str | None = None,
-    page: int = 1, page_size: int = 20,
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -118,7 +146,7 @@ async def update_product(
 @router.get("/orders")
 async def list_orders(
     status: str | None = None, q: str | None = None,
-    page: int = 1, page_size: int = 20,
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -142,12 +170,21 @@ async def get_order(
 
 @router.patch("/orders/{order_id}/status")
 async def update_order_status(
-    order_id: uuid.UUID, body: dict,
+    order_id: uuid.UUID, body: OrderStatusUpdate,
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
     svc = OrderService(db)
-    order = await svc.update_order_status(order_id, body.get("status", ""))
+    order = await svc.update_order_status(order_id, body.status, cancel_reason=body.reason)
+    await AuditService(db).record(
+        actor_user_id=user.user_id,
+        actor_role=user.role,
+        action="order.status_updated",
+        entity_type="order",
+        entity_id=order.id,
+        meta={"status": order.status, "reason": body.reason},
+    )
+    await db.commit()
     return {"id": str(order.id), "status": order.status}
 
 
@@ -155,7 +192,7 @@ async def update_order_status(
 
 @router.get("/agents")
 async def list_agents(
-    page: int = 1, page_size: int = 20,
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -181,7 +218,7 @@ async def update_agent(
 @router.get("/tickets")
 async def list_all_tickets(
     status: str | None = None, priority: str | None = None,
-    q: str | None = None, page: int = 1, page_size: int = 20,
+    q: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -195,7 +232,7 @@ async def list_all_tickets(
 
 @router.get("/knowledge")
 async def list_knowledge(
-    category: str | None = None, page: int = 1, page_size: int = 20,
+    category: str | None = None, page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -232,7 +269,7 @@ async def delete_knowledge(
 @router.get("/ai-runs")
 async def list_ai_runs(
     status: str | None = None, trace_id: str | None = None,
-    page: int = 1, page_size: int = 20,
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -245,7 +282,7 @@ async def list_ai_runs(
 @router.get("/audit-logs")
 async def list_audit_logs(
     action: str | None = None, entity_type: str | None = None,
-    page: int = 1, page_size: int = 20,
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     user: CurrentUser = Depends(require_role("ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):

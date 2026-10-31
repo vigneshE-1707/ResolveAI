@@ -40,3 +40,4 @@ class SupportTicket(Base, UUIDMixin, TimestampMixin):
 
     customer: Mapped["Customer"] = relationship("Customer", back_populates="tickets")
     assigned_agent: Mapped["SupportAgent | None"] = relationship("SupportAgent")
+    order: Mapped["Order | None"] = relationship("Order")

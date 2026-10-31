@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import {
   ArrowLeft,
@@ -18,29 +19,85 @@ import { PageHeader } from "@/components/layout/page-header"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Textarea } from "@/components/ui/textarea"
+import { ApiError } from "@/lib/api/client"
+import { useCreateReturn, useMyAddresses, useMyOrder } from "@/lib/api/hooks"
 import { formatCurrency, formatDate } from "@/lib/format"
 import { orderStatusTone } from "@/lib/status"
-import { findOrder } from "@/mocks/data"
+
+const returnReasons = [
+  { value: "wrong_item", label: "Wrong item received" },
+  { value: "damaged", label: "Item arrived damaged" },
+  { value: "not_as_described", label: "Not as described" },
+  { value: "changed_mind", label: "Changed my mind" },
+  { value: "late_delivery", label: "Arrived too late" },
+  { value: "other", label: "Other" },
+] as const
 
 export function CustomerOrderDetailPage() {
   const { orderNumber } = useParams<{ orderNumber: string }>()
-  const order = orderNumber ? findOrder(orderNumber) : undefined
+  const orderQuery = useMyOrder(orderNumber)
+  const addresses = useMyAddresses()
+  const createReturn = useCreateReturn()
+  const [returnOpen, setReturnOpen] = useState(false)
+  const [reason, setReason] = useState<string>("wrong_item")
+  const [reasonText, setReasonText] = useState("")
 
-  if (!order) {
+  const order = orderQuery.data
+  const defaultAddress = addresses.data?.find((address) => address.isDefault) ?? addresses.data?.[0]
+
+  if (orderQuery.isLoading) {
+    return (
+      <div className="space-y-3" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Loading order…</span>
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-4 w-96" />
+        <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <Skeleton className="h-64 rounded-xl" />
+          <Skeleton className="h-64 rounded-xl" />
+        </div>
+      </div>
+    )
+  }
+
+  if (orderQuery.isError || !order) {
+    const notFound = orderQuery.error instanceof ApiError && orderQuery.error.isNotFound
     return (
       <div className="rounded-xl border border-border bg-card">
         <EmptyState
           icon={PackageOpen}
-          title="Order not found"
-          description={`We couldn't find ${orderNumber ?? "that order"} on your account.`}
+          title={notFound ? "Order not found" : "Could not load this order"}
+          description={
+            notFound
+              ? `We couldn't find ${orderNumber ?? "that order"} on your account.`
+              : "The order service did not respond. Try again in a moment."
+          }
           action={
-            <Button asChild size="sm" variant="outline">
-              <Link to="/orders">
-                <ArrowLeft className="size-3.5" /> Back to orders
-              </Link>
-            </Button>
+            notFound ? (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/orders">
+                  <ArrowLeft className="size-3.5" /> Back to orders
+                </Link>
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => void orderQuery.refetch()}>
+                Try again
+              </Button>
+            )
           }
         />
       </div>
@@ -48,6 +105,24 @@ export function CustomerOrderDetailPage() {
   }
 
   const itemCount = order.items.reduce((sum, item) => sum + item.quantity, 0)
+
+  const submitReturn = () => {
+    createReturn.mutate(
+      { orderNumber: order.orderNumber, reasonCode: reason, reasonText: reasonText || undefined },
+      {
+        onSuccess: () => {
+          setReturnOpen(false)
+          setReasonText("")
+          toast.success("Return requested", {
+            description: `We'll review ${order.orderNumber} and email you the next steps.`,
+          })
+        },
+        onError: (error) => {
+          toast.error(error instanceof ApiError ? error.message : "Could not submit the return")
+        },
+      }
+    )
+  }
 
   return (
     <div>
@@ -68,7 +143,7 @@ export function CustomerOrderDetailPage() {
               size="sm"
               variant="outline"
               className="gap-1.5"
-              onClick={() => toast.info("Invoice download arrives with the backend in Milestone 3")}
+              onClick={() => toast.info("Invoice download is not available yet")}
             >
               <Download className="size-3.5" /> Invoice
             </Button>
@@ -185,17 +260,30 @@ export function CustomerOrderDetailPage() {
               <CardTitle>Delivery address</CardTitle>
             </CardHeader>
             <CardContent className="pt-0 text-[12px] text-slate-600">
-              <p className="flex items-start gap-2">
-                <MapPin className="mt-0.5 size-3.5 shrink-0 text-slate-400" />
-                <span>
-                  John Doe
-                  <br />
-                  221 Lake Street, Apt 4B
-                  <br />
-                  {order.shippingCity}
-                  <br />
-                  {order.shippingCountry}
-                </span>
+              {defaultAddress ? (
+                <p className="flex items-start gap-2">
+                  <MapPin className="mt-0.5 size-3.5 shrink-0 text-slate-400" />
+                  <span>
+                    {defaultAddress.line1}
+                    {defaultAddress.line2 ? (
+                      <>
+                        <br />
+                        {defaultAddress.line2}
+                      </>
+                    ) : null}
+                    <br />
+                    {defaultAddress.city}
+                    {defaultAddress.region ? `, ${defaultAddress.region}` : ""} {defaultAddress.postalCode}
+                    <br />
+                    {defaultAddress.country}
+                  </span>
+                </p>
+              ) : (
+                <p className="text-muted-foreground">No address on file.</p>
+              )}
+              <p className="mt-2 text-[10.5px] text-muted-foreground">
+                This is your account's default address. The order-level shipping address is not exposed
+                by the API yet.
               </p>
             </CardContent>
           </Card>
@@ -223,8 +311,8 @@ export function CustomerOrderDetailPage() {
                   size="sm"
                   variant="outline"
                   className="gap-1.5 text-[11.5px]"
-                  disabled={!order.returnEligible}
-                  onClick={() => toast.info("Return requests are created through the AI workflow in Milestone 7")}
+                  disabled={!order.returnEligible || createReturn.isPending}
+                  onClick={() => setReturnOpen(true)}
                 >
                   <RotateCcw className="size-3.5" /> Return item
                 </Button>
@@ -232,7 +320,8 @@ export function CustomerOrderDetailPage() {
                   size="sm"
                   variant="outline"
                   className="gap-1.5 text-[11.5px]"
-                  onClick={() => toast.info("Cancellation is approval-gated from Milestone 7")}
+                  disabled
+                  title="Order cancellation is not available yet"
                 >
                   <XCircle className="size-3.5" /> Cancel
                 </Button>
@@ -255,6 +344,52 @@ export function CustomerOrderDetailPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={returnOpen} onOpenChange={setReturnOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Start a return</DialogTitle>
+            <DialogDescription>
+              Tell us why {order.orderNumber} is coming back. Returns are reviewed by the support team.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="return-reason">Reason</Label>
+              <Select value={reason} onValueChange={setReason}>
+                <SelectTrigger id="return-reason">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {returnReasons.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="return-notes">Details (optional)</Label>
+              <Textarea
+                id="return-notes"
+                value={reasonText}
+                onChange={(event) => setReasonText(event.target.value)}
+                placeholder="Anything else we should know?"
+                rows={3}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setReturnOpen(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={submitReturn} disabled={createReturn.isPending}>
+              {createReturn.isPending ? "Submitting…" : "Submit return"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

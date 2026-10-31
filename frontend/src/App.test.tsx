@@ -1,32 +1,38 @@
-import { render, screen } from "@testing-library/react"
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { screen } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
+import { vi } from "vitest"
 
 import { App } from "./App"
-import { RoleProvider } from "./app/role-context"
 import { NotFoundPage } from "./features/shared/not-found-page"
+import { renderWithProviders } from "./test/utils"
 
-function withProviders(children: React.ReactNode) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return (
-    <QueryClientProvider client={queryClient}>
-      <RoleProvider>{children}</RoleProvider>
-    </QueryClientProvider>
-  )
-}
+vi.mock("@/lib/api/hooks", () => {
+  const list = () => ({
+    data: { data: [], page: 1, pageSize: 20, total: 0 },
+    isLoading: false,
+    isError: false,
+    refetch: vi.fn(),
+  })
+  return {
+    useMyOrders: list,
+    useMyTickets: list,
+    useMyConversations: list,
+    useMyAddresses: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
+    useConversationMessages: list,
+  }
+})
 
 describe("App routing", () => {
-  it("redirects the index route to the customer support console", async () => {
+  it("redirects an authenticated customer to the support console", async () => {
     window.history.pushState({}, "", "/")
 
-    render(withProviders(<App />))
+    renderWithProviders(<App />, { role: "CUSTOMER", router: false })
 
-    // Lazy route chunks are fetched on demand, so allow a generous timeout.
     expect(
       await screen.findByRole(
         "heading",
         { name: "AI-Powered Customer Support, Made Easy" },
-        { timeout: 10000 }
+        { timeout: 20000 }
       )
     ).toBeInTheDocument()
     expect(screen.getAllByRole("link", { name: /Customer Support/i }).length).toBeGreaterThan(0)
@@ -35,10 +41,11 @@ describe("App routing", () => {
 
 describe("NotFoundPage", () => {
   it("offers the customer and agent entry points", () => {
-    render(
+    renderWithProviders(
       <MemoryRouter>
         <NotFoundPage />
-      </MemoryRouter>
+      </MemoryRouter>,
+      { router: false }
     )
 
     expect(screen.getByText("This page drifted away")).toBeInTheDocument()

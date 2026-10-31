@@ -3,14 +3,12 @@ import {
   Activity,
   ArrowRight,
   BarChart3,
-  Bot,
   Clock3,
   Headset,
+  MessageSquare,
   RefreshCw,
   ShieldAlert,
-  Timer,
   TrendingUp,
-  Users,
   Wrench,
 } from "lucide-react"
 
@@ -29,28 +27,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import {
-  aiRuns,
-  categoryBreakdown,
-  knowledgeDocuments,
-  latencySeries,
-  requestSeries,
-} from "@/mocks/data"
+import { Skeleton } from "@/components/ui/skeleton"
+import { useAdminAiRuns, useAdminKnowledge, useAdminStats } from "@/lib/api/hooks"
+import { categoryBreakdown, latencySeries, requestSeries } from "@/mocks/data"
 import { duration } from "@/lib/format"
 import { cn } from "@/lib/utils"
-
-function summarize() {
-  const requests = requestSeries.reduce((sum, point) => sum + point.requests, 0)
-  const aiResolved = requestSeries.reduce((sum, point) => sum + point.aiResolved, 0)
-  const escalated = requestSeries.reduce((sum, point) => sum + point.escalated, 0)
-  return {
-    requests,
-    aiResolved,
-    escalated,
-    aiRate: Math.round((aiResolved / requests) * 100),
-    escalationRate: ((escalated / requests) * 100).toFixed(1),
-  }
-}
 
 const runStatusTone = {
   succeeded: "success",
@@ -60,18 +41,20 @@ const runStatusTone = {
 } as const
 
 export function AdminOverviewPage() {
-  const stats = summarize()
-  const failedRuns = aiRuns.filter((r) => r.status === "failed").length
+  const statsQuery = useAdminStats()
+  const knowledge = useAdminKnowledge({ pageSize: 4 })
+  const aiRuns = useAdminAiRuns({ pageSize: 5 })
+  const stats = statsQuery.data
 
   return (
     <div>
       <PageHeader
         eyebrow="Admin"
         title="Platform overview"
-        description="Support performance across the demo dataset — every number is derived from stored records."
+        description="Live counts from the support database; charts remain demo series until analytics aggregates land."
         actions={
           <>
-            <Badge variant="warning">Last 14 days · demo data</Badge>
+            <Badge variant="warning">Charts · demo data</Badge>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
               <Link to="/admin/analytics">
                 <BarChart3 className="size-3.5" /> Full analytics
@@ -81,19 +64,41 @@ export function AdminOverviewPage() {
         }
       />
 
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <StatCard label="Support requests" value={stats.requests.toLocaleString()} icon={Headset} tone="blue" delta={{ value: "+8.2%", direction: "up" }} hint="14-day total" />
-        <StatCard label="AI resolution rate" value={`${stats.aiRate}%`} icon={Bot} tone="violet" delta={{ value: "+4.1pt", direction: "up" }} hint="vs. prior period" />
-        <StatCard label="Escalation rate" value={`${stats.escalationRate}%`} icon={ShieldAlert} tone="amber" delta={{ value: "-1.3pt", direction: "down" }} hint="lower is better" />
-        <StatCard label="Avg first response" value="1.9s" icon={Timer} tone="emerald" delta={{ value: "-0.4s", direction: "down" }} hint="AI first token" />
-        <StatCard label="Avg ticket resolution" value="6.4h" icon={Clock3} tone="slate" hint="human-handled" />
-        <StatCard label="Failed AI executions" value={failedRuns} icon={RefreshCw} tone="rose" hint="last 14 days" />
+      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Total conversations"
+          value={stats?.total_conversations ?? 0}
+          icon={MessageSquare}
+          tone="blue"
+          hint="all time"
+        />
+        <StatCard
+          label="Active conversations"
+          value={stats?.active_conversations ?? 0}
+          icon={Headset}
+          tone="violet"
+          hint="not resolved or closed"
+        />
+        <StatCard
+          label="Escalated"
+          value={stats?.escalated ?? 0}
+          icon={ShieldAlert}
+          tone="amber"
+          hint="awaiting a human"
+        />
+        <StatCard
+          label="Open tickets"
+          value={stats?.open_tickets ?? 0}
+          icon={Clock3}
+          tone="emerald"
+          hint="status open"
+        />
       </div>
 
       <div className="mt-3.5 grid gap-3.5 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         <ChartCard
           title="Support volume & automation"
-          description="Requests, AI resolutions, and escalations per day"
+          description="Requests, AI resolutions, and escalations per day · demo data"
           action={
             <LegendDots
               items={[
@@ -107,7 +112,7 @@ export function AdminOverviewPage() {
           <RequestsAreaChart data={requestSeries} height={230} />
         </ChartCard>
 
-        <ChartCard title="Request categories" description="Share of conversations by intent">
+        <ChartCard title="Request categories" description="Share of conversations by intent · demo data">
           <div className="grid grid-cols-[150px_minmax(0,1fr)] items-center gap-2">
             <CategoryDonut data={categoryBreakdown} height={170} />
             <ul className="space-y-1.5">
@@ -124,10 +129,10 @@ export function AdminOverviewPage() {
       </div>
 
       <div className="mt-3.5 grid gap-3.5 lg:grid-cols-3">
-        <ChartCard title="Escalations" description="Daily human handovers">
+        <ChartCard title="Escalations" description="Daily human handovers · demo data">
           <EscalationsBarChart data={requestSeries} />
         </ChartCard>
-        <ChartCard title="Agent latency" description="p50 / p95 first token">
+        <ChartCard title="Agent latency" description="p50 / p95 first token · demo data">
           <LatencyLineChart data={latencySeries} />
         </ChartCard>
         <Card>
@@ -142,23 +147,33 @@ export function AdminOverviewPage() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-2.5 pt-0">
-            {knowledgeDocuments.slice(0, 4).map((doc) => (
-              <div key={doc.id}>
-                <div className="flex items-center justify-between gap-2 text-[11.5px]">
-                  <span className="truncate font-medium text-slate-700">{doc.title}</span>
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {doc.status === "ready" ? `${doc.chunkCount} chunks` : doc.status}
-                  </span>
+            {knowledge.isLoading ? (
+              Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-6 rounded-md" />
+              ))
+            ) : knowledge.isError ? (
+              <p className="text-[11.5px] text-muted-foreground">Could not load knowledge documents.</p>
+            ) : (knowledge.data?.data.length ?? 0) === 0 ? (
+              <p className="text-[11.5px] text-muted-foreground">No knowledge documents yet.</p>
+            ) : (
+              knowledge.data?.data.slice(0, 4).map((doc) => (
+                <div key={doc.id}>
+                  <div className="flex items-center justify-between gap-2 text-[11.5px]">
+                    <span className="truncate font-medium text-slate-700">{doc.title}</span>
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {doc.status === "ready" ? `${doc.chunkCount} chunks` : doc.status}
+                    </span>
+                  </div>
+                  <Progress
+                    value={doc.status === "ready" ? 100 : 35}
+                    className="mt-1 h-1"
+                    indicatorClassName={cn(
+                      doc.status === "ready" ? "bg-emerald-500" : "bg-amber-500"
+                    )}
+                  />
                 </div>
-                <Progress
-                  value={doc.status === "ready" ? 100 : 35}
-                  className="mt-1 h-1"
-                  indicatorClassName={cn(
-                    doc.status === "ready" ? "bg-emerald-500" : "bg-amber-500"
-                  )}
-                />
-              </div>
-            ))}
+              ))
+            )}
           </CardContent>
         </Card>
       </div>
@@ -176,48 +191,64 @@ export function AdminOverviewPage() {
             </Button>
           </CardHeader>
           <CardContent className="p-0">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="border-y border-border bg-slate-50/60 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                  <th className="px-4 py-2 font-semibold">Trace</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
-                  <th className="px-3 py-2 font-semibold">Tools</th>
-                  <th className="px-3 py-2 text-right font-semibold">Latency</th>
-                </tr>
-              </thead>
-              <tbody>
-                {aiRuns.slice(0, 5).map((run) => (
-                  <tr key={run.id} className="border-b border-border/60 last:border-0">
-                    <td className="px-4 py-2 font-mono text-[10.5px] text-slate-500">
-                      {run.traceId.slice(0, 12)}…
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusBadge
-                        tone={{
-                          label: run.status,
-                          variant: runStatusTone[run.status],
-                          dot:
-                            run.status === "succeeded"
-                              ? "bg-emerald-500"
-                              : run.status === "failed"
-                                ? "bg-red-500"
-                                : run.status === "escalated"
-                                  ? "bg-violet-500"
-                                  : "bg-amber-500",
-                        }}
-                        className="capitalize"
-                      />
-                    </td>
-                    <td className="max-w-[220px] truncate px-3 py-2 font-mono text-[10.5px] text-muted-foreground">
-                      {run.toolCalls.length ? run.toolCalls.join(", ") : "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular text-muted-foreground">
-                      {duration(run.latencyMs)}
-                    </td>
-                  </tr>
+            {aiRuns.isLoading ? (
+              <div className="space-y-2 p-4">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <Skeleton key={index} className="h-6 rounded-md" />
                 ))}
-              </tbody>
-            </table>
+              </div>
+            ) : aiRuns.isError ? (
+              <p className="px-4 py-4 text-[11.5px] text-muted-foreground">
+                Could not load AI executions.
+              </p>
+            ) : (aiRuns.data?.data.length ?? 0) === 0 ? (
+              <p className="px-4 py-4 text-[11.5px] text-muted-foreground">
+                No AI executions recorded yet. They appear once the LangGraph agent is connected.
+              </p>
+            ) : (
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="border-y border-border bg-slate-50/60 text-left text-[10px] uppercase tracking-wider text-muted-foreground">
+                    <th className="px-4 py-2 font-semibold">Trace</th>
+                    <th className="px-3 py-2 font-semibold">Status</th>
+                    <th className="px-3 py-2 font-semibold">Model</th>
+                    <th className="px-3 py-2 text-right font-semibold">Latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aiRuns.data?.data.map((run) => (
+                    <tr key={run.id} className="border-b border-border/60 last:border-0">
+                      <td className="px-4 py-2 font-mono text-[10.5px] text-slate-500">
+                        {run.traceId.slice(0, 12)}…
+                      </td>
+                      <td className="px-3 py-2">
+                        <StatusBadge
+                          tone={{
+                            label: run.status,
+                            variant: runStatusTone[run.status],
+                            dot:
+                              run.status === "succeeded"
+                                ? "bg-emerald-500"
+                                : run.status === "failed"
+                                  ? "bg-red-500"
+                                  : run.status === "escalated"
+                                    ? "bg-violet-500"
+                                    : "bg-amber-500",
+                          }}
+                          className="capitalize"
+                        />
+                      </td>
+                      <td className="max-w-[180px] truncate px-3 py-2 font-mono text-[10.5px] text-muted-foreground">
+                        {run.model || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular text-muted-foreground">
+                        {duration(run.latencyMs)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </CardContent>
         </Card>
 
@@ -229,24 +260,24 @@ export function AdminOverviewPage() {
           </CardHeader>
           <CardContent className="space-y-2 pt-0 text-[11.5px] leading-relaxed text-muted-foreground">
             <div className="rounded-lg border border-border bg-slate-50/60 px-2.5 py-2">
-              <p className="font-semibold text-slate-800">Demo dataset</p>
+              <p className="font-semibold text-slate-800">Live counts</p>
               <p>
-                Records are seeded fixtures in <span className="font-mono text-[10.5px]">src/mocks/data.ts</span>.
-                Nothing here is generated by a live model yet.
+                KPI cards, knowledge readiness, and AI executions come from the API. Time-series and
+                category charts still use <span className="font-mono text-[10.5px]">src/mocks/data.ts</span>.
               </p>
             </div>
             <div className="rounded-lg border border-border bg-slate-50/60 px-2.5 py-2">
               <p className="font-semibold text-slate-800">Next data source</p>
               <p>
-                Milestone 3 replaces these aggregates with SQL over{" "}
+                Analytics aggregates over{" "}
                 <span className="font-mono text-[10.5px]">ai_runs</span>,{" "}
                 <span className="font-mono text-[10.5px]">support_tickets</span>, and{" "}
-                <span className="font-mono text-[10.5px]">conversations</span>.
+                <span className="font-mono text-[10.5px]">conversations</span> are not implemented yet.
               </p>
             </div>
             <div className="flex items-center gap-1.5 text-[11px]">
-              <Users className="size-3.5" />
-              <span>4 agents · 3 online</span>
+              <RefreshCw className="size-3.5" />
+              <span>Stats refresh when the page is opened.</span>
             </div>
           </CardContent>
         </Card>

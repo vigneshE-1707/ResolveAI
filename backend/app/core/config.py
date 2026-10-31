@@ -21,12 +21,14 @@ class Settings(BaseSettings):
     backend_port: int = 8000
 
     # Database
-    database_url: str = "postgresql+asyncpg://postgres:admin@localhost:5432/ResolveAI"
+    database_url: str = "postgresql+asyncpg://resolveai:resolveai@localhost:5432/resolveai"
     db_pool_size: int = 10
     db_statement_timeout_ms: int = 15000
+    # SQL echo is opt-in: statements can contain PII and must not be logged by default.
+    db_echo: bool = False
 
     # Auth / JWT
-    jwt_secret_key: str = "change-me-32+chars-random"
+    jwt_secret_key: str = "change-me-please-use-a-32-plus-character-random-secret"
     jwt_algorithm: str = "HS256"
     access_token_ttl_minutes: int = 15
     refresh_token_ttl_days: int = 7
@@ -43,6 +45,9 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = 768
     knowledge_top_k: int = 4
+
+    # Return window starts at delivery, not order placement.
+    return_window_days: int = 30
 
     # MCP
     mcp_server_url: str = "http://127.0.0.1:8100/mcp"

@@ -7,8 +7,6 @@ import {
   Headset,
   MessageSquare,
   ShieldAlert,
-  Star,
-  Users,
 } from "lucide-react"
 
 import { StatusBadge } from "@/components/shared/status-badge"
@@ -17,18 +15,23 @@ import { PageHeader } from "@/components/layout/page-header"
 import { RequestsAreaChart, ChartCard, EscalationsBarChart, LatencyLineChart } from "@/components/charts/chart-cards"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { agents, conversations, escalationQueue, latencySeries, requestSeries } from "@/mocks/data"
-import { conversationModeTone } from "@/lib/status"
-import { timeAgo } from "@/lib/format"
+import { Skeleton } from "@/components/ui/skeleton"
+import { EmptyState } from "@/components/feedback/states"
+import { useAgentConversations, useAgentStats, useAgentTickets } from "@/lib/api/hooks"
+import { latencySeries, requestSeries } from "@/mocks/data"
+import { conversationModeTone, priorityTone, ticketCategoryLabel, ticketStatusTone } from "@/lib/status"
+import { formatDateShort, timeAgo } from "@/lib/format"
 
 export function AgentDashboardPage() {
+  const stats = useAgentStats()
+  const escalated = useAgentConversations({ status: "escalated", pageSize: 5 })
+
   return (
     <div>
       <PageHeader
         eyebrow="Agent console"
         title="Support operations"
-        description="Live queue health, AI coverage, and your team's workload."
+        description="Live queue health and your active workload."
         actions={
           <>
             <Button asChild variant="outline" size="sm" className="gap-1.5">
@@ -45,42 +48,27 @@ export function AgentDashboardPage() {
         }
       />
 
-      <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-2.5 sm:grid-cols-3">
         <StatCard
           label="Open conversations"
-          value={12}
+          value={stats.data?.open_conversations ?? 0}
           icon={MessageSquare}
           tone="blue"
-          delta={{ value: "+3", direction: "up" }}
-          hint="vs. yesterday"
+          hint="not yet resolved"
         />
         <StatCard
           label="Awaiting agent"
-          value={3}
+          value={stats.data?.pending_conversations ?? 0}
           icon={Clock3}
           tone="amber"
-          hint="oldest 9m"
+          hint="handed over by the assistant"
         />
         <StatCard
-          label="Resolved today"
-          value={24}
+          label="My active"
+          value={stats.data?.my_active ?? 0}
           icon={CheckCircle2}
           tone="emerald"
-          delta={{ value: "+12%", direction: "up" }}
-        />
-        <StatCard
-          label="AI-handled"
-          value="68%"
-          icon={Bot}
-          tone="violet"
-          hint="of all conversations"
-        />
-        <StatCard
-          label="CSAT (7d)"
-          value="4.7"
-          icon={Star}
-          tone="slate"
-          hint="142 ratings"
+          hint="assigned to you"
         />
       </div>
 
@@ -88,7 +76,7 @@ export function AgentDashboardPage() {
         <div className="space-y-3.5">
           <ChartCard
             title="Conversation volume"
-            description="Requests vs. AI-resolved · last 14 days"
+            description="Requests vs. AI-resolved · last 14 days · demo data"
             action={
               <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                 <span className="flex items-center gap-1">
@@ -104,10 +92,10 @@ export function AgentDashboardPage() {
           </ChartCard>
 
           <div className="grid gap-3.5 sm:grid-cols-2">
-            <ChartCard title="Escalations" description="Daily handovers to humans">
+            <ChartCard title="Escalations" description="Daily handovers · demo data">
               <EscalationsBarChart data={requestSeries} />
             </ChartCard>
-            <ChartCard title="Agent latency" description="First token response, ms">
+            <ChartCard title="Agent latency" description="First token response, ms · demo data">
               <LatencyLineChart data={latencySeries} />
             </ChartCard>
           </div>
@@ -126,63 +114,56 @@ export function AgentDashboardPage() {
               </Button>
             </CardHeader>
             <CardContent className="space-y-2 pt-0">
-              {escalationQueue.map((conversation) => (
-                <Link
-                  key={conversation.id}
-                  to={`/agent/conversations/${conversation.id}`}
-                  className="block rounded-lg border border-border bg-white p-2.5 transition-colors hover:border-amber-200 hover:bg-amber-50/40"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="truncate text-[12px] font-semibold text-slate-800">{conversation.subject}</p>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">
-                      {timeAgo(conversation.lastMessageAt)}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-amber-800">
-                    {conversation.escalationReason ?? "Escalated"}
-                  </p>
-                  <div className="mt-1.5 flex items-center gap-1.5">
-                    <StatusBadge tone={conversationModeTone[conversation.mode]} withDot={false} className="h-4 px-1.5 text-[9.5px]" />
-                    <span className="text-[10px] text-muted-foreground">
-                      {conversation.assignedAgentId ? "Assigned · Maya" : "Unassigned"}
-                    </span>
-                  </div>
-                </Link>
-              ))}
+              {escalated.isLoading ? (
+                <>
+                  <Skeleton className="h-16 rounded-lg" />
+                  <Skeleton className="h-16 rounded-lg" />
+                </>
+              ) : escalated.isError ? (
+                <p className="py-3 text-center text-[11.5px] text-muted-foreground">
+                  Could not load the escalation queue.
+                </p>
+              ) : (escalated.data?.data.length ?? 0) === 0 ? (
+                <p className="py-3 text-center text-[11.5px] text-muted-foreground">
+                  No escalated conversations right now.
+                </p>
+              ) : (
+                escalated.data?.data.map((conversation) => (
+                  <Link
+                    key={conversation.id}
+                    to={`/agent/conversations/${conversation.id}`}
+                    className="block rounded-lg border border-border bg-white p-2.5 transition-colors hover:border-amber-200 hover:bg-amber-50/40"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-[12px] font-semibold text-slate-800">{conversation.subject}</p>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {timeAgo(conversation.lastMessageAt)}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-amber-800">
+                      {conversation.escalationReason ?? "Escalated"}
+                    </p>
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <StatusBadge tone={conversationModeTone[conversation.mode]} withDot={false} className="h-4 px-1.5 text-[9.5px]" />
+                      <span className="text-[10px] text-muted-foreground">
+                        {conversation.assignedAgentId ? "Assigned" : "Unassigned"}
+                      </span>
+                    </div>
+                  </Link>
+                ))
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-1.5">
-                <Users className="size-4 text-slate-400" /> Team load
+                <Bot className="size-4 text-slate-400" /> Team workload
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2.5 pt-0">
-              {agents.map((agent) => (
-                <div key={agent.id} className="flex items-center gap-2.5">
-                  <div className="relative">
-                    <Avatar className="size-8">
-                      <AvatarFallback className="bg-slate-100 text-[10.5px] font-semibold text-slate-600">
-                        {agent.initials}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span
-                      className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-white ${
-                        agent.isOnline ? "bg-emerald-400" : "bg-slate-300"
-                      }`}
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[12px] font-medium">{agent.fullName}</p>
-                    <p className="text-[10px] text-muted-foreground">{agent.team}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[12px] font-semibold tabular">{agent.activeConversations}</p>
-                    <p className="text-[9.5px] text-muted-foreground">active</p>
-                  </div>
-                </div>
-              ))}
+            <CardContent className="pt-0 text-[11.5px] leading-relaxed text-muted-foreground">
+              Per-agent workload and CSAT are not exposed by the API yet. Use the conversation queue to
+              see assignment state.
             </CardContent>
           </Card>
 
@@ -204,6 +185,8 @@ export function AgentDashboardPage() {
 }
 
 export function AgentTicketsPage() {
+  const ticketsQuery = useAgentTickets()
+
   return (
     <div>
       <PageHeader
@@ -220,36 +203,63 @@ export function AgentTicketsPage() {
       />
       <Card>
         <CardContent className="p-0">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                <th className="px-4 py-2.5 font-semibold">Ticket</th>
-                <th className="px-4 py-2.5 font-semibold">Subject</th>
-                <th className="px-4 py-2.5 font-semibold">Status</th>
-                <th className="px-4 py-2.5 font-semibold">Priority</th>
-                <th className="px-4 py-2.5 font-semibold">Assigned</th>
-                <th className="px-4 py-2.5 text-right font-semibold">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {conversations.map((conversation) => (
-                <tr key={conversation.id} className="border-b border-border/60 last:border-0 hover:bg-slate-50/60">
-                  <td className="px-4 py-2.5 font-mono text-[11px]">TKT-{conversation.id.slice(-2).toUpperCase()}</td>
-                  <td className="max-w-[260px] truncate px-4 py-2.5 font-medium">{conversation.subject}</td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge tone={conversationModeTone[conversation.mode]} />
-                  </td>
-                  <td className="px-4 py-2.5 text-muted-foreground">Normal</td>
-                  <td className="px-4 py-2.5 text-muted-foreground">
-                    {conversation.assignedAgentId ? "Maya Fernandez" : "Unassigned"}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-[11px] text-muted-foreground">
-                    {timeAgo(conversation.lastMessageAt)}
-                  </td>
-                </tr>
+          {ticketsQuery.isLoading ? (
+            <div className="space-y-2 p-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <Skeleton key={index} className="h-9 rounded-md" />
               ))}
-            </tbody>
-          </table>
+            </div>
+          ) : ticketsQuery.isError ? (
+            <EmptyState
+              icon={ShieldAlert}
+              title="Could not load tickets"
+              description="The ticket service did not respond."
+              action={
+                <Button size="sm" variant="outline" onClick={() => void ticketsQuery.refetch()}>
+                  Try again
+                </Button>
+              }
+            />
+          ) : (ticketsQuery.data?.data.length ?? 0) === 0 ? (
+            <EmptyState icon={ShieldAlert} title="No tickets" description="No support tickets match this view." />
+          ) : (
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="border-b border-border text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                  <th className="px-4 py-2.5 font-semibold">Ticket</th>
+                  <th className="px-4 py-2.5 font-semibold">Subject</th>
+                  <th className="px-4 py-2.5 font-semibold">Category</th>
+                  <th className="px-4 py-2.5 font-semibold">Status</th>
+                  <th className="px-4 py-2.5 font-semibold">Priority</th>
+                  <th className="px-4 py-2.5 font-semibold">Assigned</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Updated</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ticketsQuery.data?.data.map((ticket) => (
+                  <tr key={ticket.id} className="border-b border-border/60 last:border-0 hover:bg-slate-50/60">
+                    <td className="px-4 py-2.5 font-mono text-[11px]">{ticket.ticketNumber}</td>
+                    <td className="max-w-[260px] truncate px-4 py-2.5 font-medium">{ticket.subject}</td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {ticketCategoryLabel[ticket.category]}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge tone={ticketStatusTone[ticket.status]} />
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge tone={priorityTone[ticket.priority]} withDot={false} />
+                    </td>
+                    <td className="px-4 py-2.5 text-muted-foreground">
+                      {ticket.assignedAgentId ? "Support agent" : "Unassigned"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-[11px] text-muted-foreground">
+                      {formatDateShort(ticket.updatedAt)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </CardContent>
       </Card>
     </div>
