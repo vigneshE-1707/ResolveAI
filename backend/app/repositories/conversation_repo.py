@@ -89,6 +89,29 @@ class MessageRepository:
         result = await self.session.execute(stmt)
         return (result.scalar() or 0) + 1
 
+    async def list_recent(self, conversation_id: uuid.UUID, *, limit: int = 20) -> list[Message]:
+        stmt = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.seq.desc())
+            .limit(limit)
+        )
+        result = await self.session.execute(stmt)
+        return list(reversed(list(result.scalars().all())))
+
+    async def get_by_trace_id(self, conversation_id: uuid.UUID, trace_id: str) -> Message | None:
+        stmt = (
+            select(Message)
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.trace_id == trace_id,
+                Message.role == "assistant",
+            )
+            .order_by(Message.created_at.desc())
+        )
+        result = await self.session.execute(stmt)
+        return result.scalars().first()
+
     async def create(self, message: Message) -> Message:
         self.session.add(message)
         await self.session.flush()

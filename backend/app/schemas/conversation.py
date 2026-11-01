@@ -1,6 +1,7 @@
 """Conversation and message schemas."""
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -9,6 +10,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class ConversationCreate(BaseModel):
     subject: str = Field(max_length=255)
     order_number: str | None = None
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8000)
+    turn_id: uuid.UUID
 
 
 class AgentReplyCreate(BaseModel):

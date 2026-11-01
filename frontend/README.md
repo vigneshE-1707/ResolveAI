@@ -2,8 +2,10 @@
 
 React 19 + TypeScript + Vite 8 + Tailwind 4 + shadcn/ui (new-york) + TanStack Query + Recharts.
 
-Milestone 2 delivers the complete UI on **demo data**. No backend calls are made; every fixture lives
-in `src/mocks/data.ts` and the demo boundary is signalled by `VITE_MODE` (`src/lib/env.ts`).
+Milestone 3 wires the app to the live FastAPI backend. Authentication, route guards, and the
+customer/agent/admin data flows call the real API through a typed client (`src/lib/api/`); the few
+surfaces without a backend counterpart are still backed by `src/mocks/data.ts` and are labelled
+as demo data on screen.
 
 ## Run
 
@@ -28,7 +30,7 @@ npm run dev        # http://localhost:5173 (proxies /api → 127.0.0.1:8000)
 
 ```
 src/
-  app/            # role context (demo), navigation config
+  app/            # auth context + route guards, navigation config
   components/
     ui/           # shadcn primitives (new-york, Radix + cva)
     layout/       # AppShell, AppSidebar, TopNavbar, PageHeader, StatCard
@@ -40,23 +42,28 @@ src/
     customer/     # support console, orders, tickets, use-demo-chat (M4 replace)
     agent/        # dashboard, 3-pane workspace
     admin/        # overview, customers, orders, tickets, agents, KB, analytics, monitoring
-    auth/         # login/register (RHF + Zod, demo submission)
+    auth/         # login/register against the real API (RHF + Zod)
     shared/       # profile, settings, 404
-  lib/            # cn, formatters, status tone maps, env
-  mocks/          # DEMO DATA ONLY — delete/replace per milestone
-  test/           # vitest setup
+  lib/
+    api/          # typed fetch client, endpoints, React Query hooks, mappers
+    ...           # cn, formatters, status tone maps, env
+  mocks/          # DEMO DATA ONLY — remaining labelled surfaces
+  test/           # vitest setup + renderWithProviders helper
 ```
 
 ## Demo boundaries (read before extending)
 
-- `src/mocks/data.ts` is the only fixture source. Feature code imports it directly for now; M3 swaps
-  those imports for TanStack Query calls.
-- `RoleProvider` (`src/app/role-context.tsx`) fakes sign-in by storing a role in `localStorage`. It is
-  **not** authentication and must be replaced by the JWT-backed provider in Milestone 3.
-- `features/customer/use-demo-chat.ts` fabricates replies with `setTimeout`. The composer, topbar, and
-  footers label this as demo mode. Delete it in Milestone 4 when the SSE endpoint exists.
-- Buttons whose action requires the backend (claim, resolve, export, invite, upload, invoice) show an
-  informational toast that names the milestone instead of pretending to persist.
+- `src/lib/api/` owns every backend call: `client.ts` (fetch + refresh-on-401), `endpoints.ts`
+  (typed surface), `hooks.ts` (query keys, queries, mutations), `mappers.ts` (snake_case → camelCase).
+  Keep wire types in `types.ts`; do not let snake_case leak into components.
+- Access tokens live in memory only; the session is restored from the HttpOnly refresh cookie
+  (`SameSite=strict`, path `/api/v1/auth`). Never persist tokens to `localStorage`.
+- `features/customer/use-demo-chat.ts` still fabricates replies with `setTimeout`. The composer and
+  footers label this as demo mode. Replace it in Milestone 4 when the SSE endpoint exists.
+- `src/mocks/data.ts` now only backs the admin customer directory and the analytics charts; those
+  screens show a visible **Demo data** badge.
+- Actions with no backend support (e.g. customer ticket replies, notifications, session management)
+  are disabled or show an honest note rather than pretending to persist.
 
 ## Conventions
 

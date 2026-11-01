@@ -33,14 +33,23 @@ deterministic validation and explicit approval, and escalates cleanly to human a
 
 ## Status
 
-**Milestone 3 — Backend Foundation: COMPLETE (awaiting review).**
-Auth (register/login/refresh/logout with DB-backed session revocation), RBAC, orders, returns,
-tickets, conversations, agent workspace, admin, health, structured logging, audit trail, Alembic
-migrations (up → down → up verified), deterministic seed, and 40 passing tests.
+**Milestone 3 — Backend Foundation + Frontend Integration: COMPLETE (awaiting review).**
 
-**Frontend integration is the remaining part of Milestone 3.** All UI in `frontend/` still runs on
-clearly labelled demo data (`frontend/src/mocks/data.ts`); the API client, auth provider, route
-guards, and snake_case → camelCase mappers are next.
+Backend: auth (register/login/refresh/logout with DB-backed session revocation), RBAC, orders,
+returns, tickets, conversations, agent workspace, admin, health, structured logging, audit trail,
+Alembic migrations (up → down → up verified), deterministic seed, and **45 passing tests**.
+
+Frontend: the three portals are wired to the live API — real sign-in/sign-up with an in-memory
+access token plus an HttpOnly refresh cookie, route guards per role, and React Query hooks over a
+typed client with snake_case → camelCase mappers. Customer orders, returns, tickets, support,
+profile and settings; the agent queue, transcript, replies, claim/takeover/resolve and AI toggles;
+and the admin overview, orders, tickets, agents, knowledge base, monitoring and settings all read
+and write real data.
+
+**Still demo-labelled (intentionally):** customer chat replies (`use-demo-chat`, until the
+Milestone 4 SSE endpoint), admin/agent analytics charts (`src/mocks/data.ts`), and the admin
+customer directory (no `/admin/customers` endpoint yet). Everything else that shows demo data says
+so on screen.
 
 ## Run the backend
 
@@ -112,8 +121,10 @@ npm run dev          # http://localhost:5173
 
 Routes: `/support`, `/orders`, `/tickets` (customer) · `/agent`, `/agent/conversations`,
 `/agent/tickets` · `/admin` and the admin operations/intelligence pages · `/login`, `/register`,
-`/profile`, `/settings`. Use the sidebar or topbar avatar to preview another role — that switcher is
-a **local demo affordance**, not authentication.
+`/profile`, `/settings`. Every route is guarded: unauthenticated visitors are sent to `/login`, and
+each portal only admits its own role. Sign in with a seeded account (password `ResolveAI#2026`):
+`john.doe@email.com` (customer), `maya.fernandez@resolveai.app` (agent),
+`alex.morgan@resolveai.app` (admin).
 
 ## Local prerequisites
 

@@ -42,7 +42,7 @@ POST  /me/returns                       {order_number, reason_code, reason_text?
 RESS (role CUSTOMER)
 POST  /conversations/:id/chat           SSE stream of turn; body {message, turn_id}
 POST  /conversations/:id/messages       {content} → append (used for clarify-only replies)
-GET   /conversations/:id/messages       paginated transcript
+GET   /conversations/:id/messages       paginated transcript (customer: own; agent/admin: any)
 POST  /conversations/:id/approvals      {turn_id, decision: granted|denied}     → resumes graph (interrupt path)
 POST  /conversations/:id/escalate       {reason}                                → request human
 GET   /returns/eligibility/:order_number deterministic eligibility preview (no mutation)

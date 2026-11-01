@@ -205,6 +205,8 @@ export function mapConversation(wire: WireConversation): Conversation {
     unread: false,
     aiHandled: wire.mode === "ai",
     messageCount: 0,
+    updatedAt: wire.updated_at,
+    escalatedAt: wire.escalated_at,
   }
 }
 

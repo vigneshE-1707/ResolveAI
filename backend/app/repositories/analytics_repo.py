@@ -20,6 +20,19 @@ class AiRunRepository:
         await self.session.flush()
         return ai_run
 
+    async def get_by_id(self, run_id: uuid.UUID) -> AiRun | None:
+        return await self.session.get(AiRun, run_id)
+
+    async def update(self, run_id: uuid.UUID, **fields) -> AiRun | None:
+        run = await self.session.get(AiRun, run_id)
+        if not run:
+            return None
+        for key, value in fields.items():
+            if hasattr(run, key):
+                setattr(run, key, value)
+        await self.session.flush()
+        return run
+
     async def list_all(
         self, *, status: str | None = None, trace_id: str | None = None,
         offset: int = 0, limit: int = 20,

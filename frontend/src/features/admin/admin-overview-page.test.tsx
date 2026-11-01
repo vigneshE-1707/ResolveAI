@@ -83,4 +83,3 @@ describe("AdminOverviewPage", () => {
     expect(screen.getByText("4bf92f3577b3…")).toBeInTheDocument()
   })
 })
-})

@@ -28,6 +28,10 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    from app.agents.checkpointer import checkpointer_manager
+
+    await checkpointer_manager.close()
+
 
 application = FastAPI(
     title=settings.app_name,
@@ -127,9 +131,11 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.customers import router as customer_router
 from app.api.v1.agent import router as agent_router
 from app.api.v1.admin import router as admin_router
+from app.api.v1.chat import router as chat_router
 
 application.include_router(health_router, prefix="/api/v1")
 application.include_router(auth_router, prefix="/api/v1")
 application.include_router(customer_router, prefix="/api/v1")
 application.include_router(agent_router, prefix="/api/v1")
 application.include_router(admin_router, prefix="/api/v1")
+application.include_router(chat_router, prefix="/api/v1")

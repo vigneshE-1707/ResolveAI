@@ -4,7 +4,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,6 +36,17 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
 
 class Message(Base, UUIDMixin):
     __tablename__ = "messages"
+    __table_args__ = (
+        # One assistant reply per turn; makes chat retries idempotent even under
+        # concurrent requests. Agent-authored messages leave trace_id NULL.
+        Index(
+            "uq_messages_conversation_trace",
+            "conversation_id",
+            "trace_id",
+            unique=True,
+            postgresql_where=text("trace_id IS NOT NULL"),
+        ),
+    )
 
     conversation_id: Mapped[uuid.UUID] = mapped_column(
         PG_UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False, index=True,

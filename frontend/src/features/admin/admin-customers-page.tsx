@@ -34,11 +34,14 @@ export function AdminCustomersPage() {
       <PageHeader
         eyebrow="Admin · Operations"
         title="Customers"
-        description="Account directory with loyalty tier, order volume, and ticket load."
+        description="Account directory with loyalty tier, order volume, and ticket load. No customer API exists yet, so this view uses demo data."
         actions={
-          <Button size="sm" className="gap-1.5" onClick={() => toast.info("Customer creation arrives with the API in Milestone 3")}>
-            <UserPlus className="size-3.5" /> Add customer
-          </Button>
+          <>
+            <Badge variant="warning">Demo data</Badge>
+            <Button size="sm" className="gap-1.5" onClick={() => toast.info("Customer creation is not available yet")}>
+              <UserPlus className="size-3.5" /> Add customer
+            </Button>
+          </>
         }
       />
 

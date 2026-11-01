@@ -195,11 +195,13 @@ async def get_messages(
     conversation_id: uuid.UUID,
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=100),
-    user: CurrentUser = Depends(require_role("CUSTOMER")),
+    user: CurrentUser = Depends(require_role("CUSTOMER", "SUPPORT_AGENT", "ADMIN")),
     db: AsyncSession = Depends(get_db),
 ):
     svc = ConversationService(db)
-    await svc.get_conversation(conversation_id, customer_id=user.customer_id)
+    # Customers may only read their own threads; agents and admins handle the queue.
+    customer_id = user.customer_id if user.role == "CUSTOMER" else None
+    await svc.get_conversation(conversation_id, customer_id=customer_id)
     messages, total = await svc.get_messages(conversation_id, page=page, page_size=page_size)
     return {
         "data": [_msg_out(m) for m in messages],

@@ -208,6 +208,9 @@ export interface Conversation {
   unread: boolean
   aiHandled: boolean
   messageCount: number
+  /** Present on API-mapped conversations; absent on demo fixtures. */
+  updatedAt?: string
+  escalatedAt?: string | null
 }
 
 export interface ActivityItem {

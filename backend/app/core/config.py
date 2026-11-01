@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.2
     llm_timeout_seconds: int = 30
     agent_max_steps: int = 4
+    agent_graph_version: str = "m4"
+    agent_turn_timeout_seconds: int = 90
+    agent_history_messages: int = 20
+    # postgres → AsyncPostgresSaver (durable); memory → InMemorySaver (tests only)
+    agent_checkpointer: str = "postgres"
+    agent_checkpoint_schema: str = "langgraph"
     embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = 768
     knowledge_top_k: int = 4

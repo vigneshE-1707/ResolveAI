@@ -309,7 +309,12 @@ export function AgentWorkspacePage() {
                   {activeConversation.escalationReason}
                 </p>
                 <p className="mt-1.5 text-[10px] text-amber-700/80">
-                  Escalated {formatDateShort(activeConversation.escalatedAt ?? activeConversation.updatedAt)}
+                  Escalated{" "}
+                  {formatDateShort(
+                    activeConversation.escalatedAt ??
+                      activeConversation.updatedAt ??
+                      activeConversation.lastMessageAt
+                  )}
                 </p>
               </CardContent>
             </Card>

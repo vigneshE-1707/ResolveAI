@@ -432,8 +432,18 @@ Decisions made while building the backend, kept here so the contract and the cod
   `support_tickets` / `return_requests`; replays return the original resource.
 - **Wire format stays snake_case.** The frontend maps to camelCase in its API client instead of
   forcing a backend-wide renaming.
+- **Frontend auth keeps the access token in memory only** and restores the session through the
+  HttpOnly refresh cookie (`SameSite=strict`, path `/api/v1/auth`). Route guards are role-aware, so
+  each portal only admits its own role and anonymous visitors land on `/login`.
+- **Data fetching uses TanStack Query** over a typed `fetch` client that retries once after a refresh
+  on `401` and normalises the backend error envelope. Wire types and camelCase mappers live in
+  `frontend/src/lib/api/`.
+- **List summaries are enriched server-side** (`first_item_name`, `line_count`, shipment summary,
+  `customer_name`, ticket `order_number`) so cards render without N+1 detail calls.
+- **Transcript access is shared:** `GET /conversations/:id/messages` is customer-scoped for customers
+  and unscoped for agents/admins, who need the full thread in the workspace.
 - **SQL echo is opt-in** (`DB_ECHO=false` by default) because statements can contain PII.
 
 ---
 
-*Status: approved; implemented through Milestone 3 backend (see `ROADMAP.md` for live status).*
+*Status: approved; implemented through Milestone 3 (backend + frontend integration) — see `ROADMAP.md` for live status.*

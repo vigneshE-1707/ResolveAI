@@ -46,6 +46,14 @@ class DuplicateError(AppError):
         super().__init__(message)
 
 
+class ConflictError(AppError):
+    code = "conflict"
+    status_code = 409
+
+    def __init__(self, message: str = "The request conflicts with the current state"):
+        super().__init__(message)
+
+
 class AuthenticationError(AppError):
     code = "authentication_failed"
     status_code = 401
