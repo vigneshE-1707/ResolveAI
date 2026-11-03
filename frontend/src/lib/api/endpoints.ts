@@ -1,6 +1,6 @@
 import type { Order, OrderSummary, Ticket, User } from "@/types"
 
-import { apiRequest } from "./client"
+import { apiRequest, apiStream } from "./client"
 import {
   mapAddress,
   mapAgent,
@@ -171,6 +171,20 @@ export const customerApi = {
     apiRequest<WireList<WireConversation>>(
       `/me/conversations${query({ page: params.page, page_size: params.pageSize })}`
     ).then((wire) => listMeta(wire, mapConversation)),
+
+  createConversation: (subject: string) =>
+    apiRequest<WireConversation>("/me/conversations", {
+      method: "POST",
+      body: { subject },
+    }).then(mapConversation),
+
+  /** Stream one agent turn. Frames are `token | card | turn_status | error | done`. */
+  chatStream: (conversationId: string, message: string, turnId: string, signal?: AbortSignal) =>
+    apiStream(`/conversations/${encodeURIComponent(conversationId)}/chat`, {
+      method: "POST",
+      body: { message, turn_id: turnId },
+      signal,
+    }),
 
   messages: (conversationId: string, params: ListParams = {}) =>
     apiRequest<WireList<WireMessage>>(

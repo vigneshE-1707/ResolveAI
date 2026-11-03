@@ -264,6 +264,31 @@ graph = builder.compile(checkpointer=checkpointer, interrupt_after=..., ...)
 - The LLM provider is configured via `LLM_PROVIDER`/`LLM_MODEL` + provider-specific keys, so a
   ChatOpenAI/Anthropic swap is a settings change, not code surgery.
 
+### 5.4 Implemented in Milestone 4
+
+The code in `backend/app/agents/` answers the design above with this concrete slice; the
+knowledge, approval and escalation branches stay in the design until M5–M7.
+
+| Piece | Implementation |
+|---|---|
+| Model | `llm.py` builds `ChatGoogleGenerativeAI` from `LLM_PROVIDER` / `LLM_MODEL`; a missing key raises `ModelUnavailableError` and the endpoint returns `503 model_unavailable` before opening the stream. |
+| State | `state.py` — `SupportState` keeps `conversation_id`, `customer_id`, `turn_id`, `messages`, `intent`, `order_number`, `tool_results`, `errors`, `reply`, `card`, `usage`. Identity is injected by the runner from the verified JWT; no tool schema accepts `customer_id`. |
+| Graph | `graph.py` — `START → load_context → classify_intent →` (`route_intent`) `run_tools → compose_response → END`. `classify_intent` uses structured output (`IntentDecision`) and falls back to `general` on failure. |
+| Tools | `tools.py` — `get_order_status`, `list_my_orders` as closures over the request's DB session and the JWT's `customer_id`. Payloads are validated/serialised in the closure, so the model never sees raw ORM objects. |
+| Tool loop | `run_tools` is a bounded ReAct loop (`AGENT_MAX_STEPS`, default 4). Unknown tool names and tool exceptions become structured errors instead of crashes. |
+| Compose | `compose_response` streams `llm.astream`, builds a grounded system prompt from the tool payloads, and emits an `order_status` card only when exactly one `get_order_status` lookup succeeded. |
+| Memory | `load_context` reloads the last `AGENT_HISTORY_MESSAGES` rows from `messages`, so history survives a new process even before the checkpointer is consulted. The checkpointer adds per-thread graph state. |
+| Checkpointer | `checkpointer.py` — lazy `AsyncPostgresSaver` over a psycopg conninfo derived from `DATABASE_URL`, with `search_path=<schema>,public`; `AGENT_CHECKPOINTER=memory` swaps in `InMemorySaver` for tests. |
+| Turn orchestration | `runner.py` — replay check on `turn_id`, insert `user` message + `ai_runs(status=running)`, run the graph with `stream_mode="messages"` filtered to `langgraph_node == "compose_response"`, persist the assistant message, finalise the run (`succeeded` / `failed` / `timeout` / `interrupted`). |
+| Transport | `api/v1/chat.py` — `POST /conversations/:id/chat`, guarded by `require_role("CUSTOMER")`, ownership, `mode == "ai"` and open status. Frames: `turn_status`, `token`, `card`, `error`, `done`. |
+
+**Idempotency.** `turn_id` doubles as the message `trace_id`; a partial unique index on
+`(conversation_id, trace_id)` makes concurrent retries safe, and a replay streams the stored reply
+and card without re-running the model.
+
+**Windows note.** psycopg's async driver cannot use `ProactorEventLoop`, so development uses
+`scripts/dev_server.py` (selector loop factory); tests set `WindowsSelectorEventLoopPolicy`.
+
 ## 6. MCP integration
 
 ### 6.1 Trusted-context architecture (the crux)
@@ -413,7 +438,7 @@ frontend/src/
 | Stale embeddings after doc edit                | wrong answers        | knowledge_documents.version + regenerate on update + only `status=ready` searchable                                                                            |
 | Over-engineering                               | slows delivery       | skip Redis/microservices; horizontal scale documented, built later only if needed                                                                                |
 
-## 14. Implementation notes (Milestone 3)
+## 14. Implementation notes (Milestones 3–4)
 
 Decisions made while building the backend, kept here so the contract and the code stay aligned:
 
@@ -443,7 +468,26 @@ Decisions made while building the backend, kept here so the contract and the cod
 - **Transcript access is shared:** `GET /conversations/:id/messages` is customer-scoped for customers
   and unscoped for agents/admins, who need the full thread in the workspace.
 - **SQL echo is opt-in** (`DB_ECHO=false` by default) because statements can contain PII.
+- **The graph is compiled per request** because tools and the history loader close over the
+  request-scoped `AsyncSession`; only the checkpointer is long-lived. Compilation is cheap.
+- **Streamed tokens are filtered by node.** `graph.astream(..., stream_mode="messages")` emits
+  chunks from the classifier and tool loop too; the runner only forwards chunks whose
+  `metadata["langgraph_node"]` is `compose_response`.
+- **Classifier output is untrusted.** `classify_intent` accepts only `ORD-\d{3,10}` as an order
+  number and drops anything else, so prompt injection cannot smuggle SQL or a foreign order id.
+- **Chat idempotency is a unique index, not a lock.** `messages(conversation_id, trace_id)` is
+  unique where `trace_id IS NOT NULL`; a duplicate insert loses the race cleanly and the retry
+  replays the stored assistant message.
+- **`ai_runs` records lifecycle, not just outcomes.** The row is inserted as `running` and closed
+  as `succeeded` / `failed` / `timeout` / `interrupted` (`c2e8a1f6d3b7` widened the M3 CHECK).
+- **Checkpointer schema is created at first use** (`CREATE SCHEMA IF NOT EXISTS`), and the schema
+  name is validated against an identifier regex before interpolation.
+- **The SSE card frame is `{type, kind, data}`** where `data` is the message card. The frontend
+  renders `data` through `mapCard`, so a new card kind is additive.
+- **Chat errors never kill the stream.** Model/provider failures are logged without message
+  content, surfaced as an `error` frame, and followed by `done` so the client can leave the
+  composer usable.
 
 ---
 
-*Status: approved; implemented through Milestone 3 (backend + frontend integration) — see `ROADMAP.md` for live status.*
+*Status: approved; implemented through Milestone 4 (AI agent foundation) — see `ROADMAP.md` for live status.*

@@ -7,6 +7,7 @@ the MCP server; the signatures and return shapes stay the same.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 from typing import Any
@@ -18,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.order import Order
 from app.repositories.order_repo import OrderRepository, ReturnRequestRepository
 from app.services.return_service import evaluate_return_eligibility
+
+logger = logging.getLogger("resolveai.agent.tools")
 
 
 class GetOrderStatusArgs(BaseModel):
@@ -51,8 +54,10 @@ def _serialize_order(order: Order, *, return_info: dict[str, Any] | None = None)
                 "tracking_number": shipment.tracking_number,
                 "status": shipment.status,
                 "shipped_at": _iso(shipment.shipped_at),
-                "estimated_delivery": _iso(shipment.estimated_delivery),
+                "estimated_delivery": _iso(shipment.estimated_delivery_at),
                 "delivered_at": _iso(shipment.delivered_at),
+                "last_event": shipment.last_event_desc,
+                "last_event_at": _iso(shipment.last_event_at),
             }
             if shipment
             else None
@@ -75,22 +80,31 @@ def build_customer_tools(session: AsyncSession, customer_id: uuid.UUID) -> list[
             order = await order_repo.get_by_order_number(
                 order_number.strip().upper(), customer_id=customer_id
             )
-        except Exception:  # never leak DB details to the model
+            if not order:
+                return {"ok": False, "error": "not_found", "order_number": order_number}
+            active_return = await return_repo.get_active_for_order(order.id)
+            return {
+                "ok": True,
+                "order": _serialize_order(
+                    order,
+                    return_info=evaluate_return_eligibility(order, active_return=active_return),
+                ),
+            }
+        except Exception as exc:  # never leak DB details to the model
+            logger.warning(
+                "Order lookup failed",
+                extra={"event": "tool_lookup_failed", "error_type": type(exc).__name__},
+            )
             return {"ok": False, "error": "lookup_failed"}
-        if not order:
-            return {"ok": False, "error": "not_found", "order_number": order_number}
-        active_return = await return_repo.get_active_for_order(order.id)
-        return {
-            "ok": True,
-            "order": _serialize_order(
-                order, return_info=evaluate_return_eligibility(order, active_return=active_return)
-            ),
-        }
 
     async def list_my_orders(limit: int = 5) -> dict[str, Any]:
         try:
             orders, _total = await order_repo.list_by_customer(customer_id, limit=limit)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Order list failed",
+                extra={"event": "tool_lookup_failed", "error_type": type(exc).__name__},
+            )
             return {"ok": False, "error": "lookup_failed"}
         return {
             "ok": True,

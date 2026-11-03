@@ -33,23 +33,30 @@ deterministic validation and explicit approval, and escalates cleanly to human a
 
 ## Status
 
-**Milestone 3 — Backend Foundation + Frontend Integration: COMPLETE (awaiting review).**
+**Milestone 3 — Backend Foundation + Frontend Integration: COMPLETE.**
+**Milestone 4 — AI Agent Foundation: COMPLETE (awaiting review).**
 
 Backend: auth (register/login/refresh/logout with DB-backed session revocation), RBAC, orders,
 returns, tickets, conversations, agent workspace, admin, health, structured logging, audit trail,
-Alembic migrations (up → down → up verified), deterministic seed, and **45 passing tests**.
+Alembic migrations (up → down → up verified), deterministic seed, and **68 passing tests**.
+
+Milestone 4 adds the support agent: a Gemini-backed LangGraph graph
+(`load_context → classify_intent → run_tools → compose_response`), account-scoped tool closures,
+a durable `AsyncPostgresSaver` checkpointer, per-turn `ai_runs` bookkeeping, and
+`POST /conversations/:id/chat` streaming SSE frames. Turns are idempotent on `turn_id`, and
+history is reloaded from the transcript so a fresh process still remembers earlier turns.
 
 Frontend: the three portals are wired to the live API — real sign-in/sign-up with an in-memory
 access token plus an HttpOnly refresh cookie, route guards per role, and React Query hooks over a
 typed client with snake_case → camelCase mappers. Customer orders, returns, tickets, support,
 profile and settings; the agent queue, transcript, replies, claim/takeover/resolve and AI toggles;
 and the admin overview, orders, tickets, agents, knowledge base, monitoring and settings all read
-and write real data.
+and write real data. The customer support chat now streams real agent replies and renders the
+grounded order card from the `card` frame.
 
-**Still demo-labelled (intentionally):** customer chat replies (`use-demo-chat`, until the
-Milestone 4 SSE endpoint), admin/agent analytics charts (`src/mocks/data.ts`), and the admin
-customer directory (no `/admin/customers` endpoint yet). Everything else that shows demo data says
-so on screen.
+**Still demo-labelled (intentionally):** admin/agent analytics charts (`src/mocks/data.ts`) and the
+admin customer directory (no `/admin/customers` endpoint yet). Everything else that shows demo
+data says so on screen.
 
 ## Run the backend
 
@@ -67,9 +74,17 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m alembic upgrade head
 .\.venv\Scripts\python.exe scripts\seed_demo.py
 
-# 4. API
-.\.venv\Scripts\python.exe -m uvicorn app.main:application --host 127.0.0.1 --port 8000
+# 4. API — set GOOGLE_API_KEY first (see .env.example)
+.\.venv\Scripts\python.exe scripts\dev_server.py --reload
 ```
+
+`scripts/dev_server.py` is the recommended entrypoint because psycopg's async driver (used by the
+durable LangGraph checkpointer) cannot run on the Windows `ProactorEventLoop`. On Linux/macOS
+plain `uvicorn app.main:application --port 8000` works, but the script is cross-platform.
+
+The agent needs a Gemini key: copy `.env.example` to `backend/.env` and set `GOOGLE_API_KEY`.
+Without it, `POST /conversations/:id/chat` returns `503 model_unavailable`; every other endpoint
+still works.
 
 OpenAPI docs: <http://127.0.0.1:8000/docs>. Health: `/api/v1/healthz`, `/api/v1/readyz`.
 
@@ -99,6 +114,24 @@ cd backend
 - List endpoints return `{ "data": [...], "meta": { "page", "page_size", "total" } }`.
 - State-changing customer requests accept an `Idempotency-Key` header and replay the original
   resource on retry.
+- Chat turns are idempotent on `turn_id` (a UUID the client generates per send): replaying a turn
+  returns the stored assistant message and never calls the model twice.
+
+### Chat stream
+
+`POST /api/v1/conversations/:id/chat` returns `text/event-stream`. Each frame is
+`event: frame` plus one JSON `data:` line:
+
+```text
+data: {"type":"turn_status","value":"streaming"}
+data: {"type":"token","value":"Your order ORD-1024 "}
+data: {"type":"card","kind":"order_status","data":{...}}
+data: {"type":"turn_status","value":"complete"}
+data: {"type":"done","turn_id":"…"}
+```
+
+Errors arrive as `{"type":"error","code":"…","message":"…"}` followed by `done`. The runner enforces
+`AGENT_TURN_TIMEOUT_SECONDS` and records the outcome on the `ai_runs` row.
 
 ## Run the frontend
 

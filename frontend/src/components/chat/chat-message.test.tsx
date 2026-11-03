@@ -34,7 +34,7 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText("ResolveAI Assistant")).toBeInTheDocument()
     expect(screen.getByText("#ORD-1024")).toBeInTheDocument()
     expect(screen.getByText("In Transit")).toBeInTheDocument()
-    expect(screen.getByText(/get_order_info/)).toBeInTheDocument()
+    expect(screen.getByText(/get_order_status/)).toBeInTheDocument()
   })
 
   it("passes suggestion clicks to the handler", () => {

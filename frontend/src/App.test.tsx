@@ -19,6 +19,7 @@ vi.mock("@/lib/api/hooks", () => {
     useMyConversations: list,
     useMyAddresses: () => ({ data: [], isLoading: false, isError: false, refetch: vi.fn() }),
     useConversationMessages: list,
+    useCreateConversation: () => ({ mutateAsync: vi.fn(), isPending: false }),
   }
 })
 

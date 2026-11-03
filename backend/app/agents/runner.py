@@ -51,6 +51,11 @@ def sse_frame(frame: ChatFrame) -> str:
     return f"event: frame\ndata: {payload}\n\n"
 
 
+def _card_frame(card: dict[str, Any]) -> ChatFrame:
+    """SSE card frame shape from the documented contract: {kind, data}."""
+    return {"type": "card", "kind": card.get("kind"), "data": card}
+
+
 def _to_lc_message(message: Message) -> AnyMessage:
     if message.role == "user":
         return HumanMessage(content=message.content, id=str(message.id))
@@ -94,7 +99,7 @@ class AgentRunner:
             # the model (and mutating anything) a second time.
             yield {"type": "token", "value": existing.content}
             if existing.card:
-                yield {"type": "card", **existing.card}
+                yield _card_frame(existing.card)
             yield {"type": "turn_status", "value": "complete"}
             yield {"type": "done", "turn_id": turn_id}
             return
@@ -112,7 +117,7 @@ class AgentRunner:
         await self.session.commit()
 
         started = time.perf_counter()
-        status = "success"
+        status = "succeeded"
         error_code: str | None = None
         usage: dict[str, int] = {}
         tool_calls: list[dict[str, Any]] | None = None
@@ -185,7 +190,7 @@ class AgentRunner:
             message_id = assistant.id
 
             if card:
-                yield {"type": "card", **card}
+                yield _card_frame(card)
             yield {"type": "turn_status", "value": "complete"}
             yield {"type": "done", "turn_id": turn_id}
 
@@ -203,12 +208,12 @@ class AgentRunner:
             }
             yield {"type": "done", "turn_id": turn_id}
         except AppError as exc:
-            status = "error"
+            status = "failed"
             error_code = exc.code
             yield {"type": "error", "code": exc.code, "message": exc.message}
             yield {"type": "done", "turn_id": turn_id}
         except Exception as exc:
-            status = "error"
+            status = "failed"
             error_code = "agent_error"
             logger.exception(
                 "Agent turn failed",

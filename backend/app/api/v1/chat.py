@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -28,6 +29,16 @@ def get_agent_runner(db: AsyncSession = Depends(get_db)) -> AgentRunner:
     return AgentRunner(db)
 
 
+def _sse_stream(frames: AsyncIterator[ChatFrame]) -> AsyncIterator[str]:
+    """Adapt runner frames to the documented ``event: frame`` SSE framing."""
+
+    async def generate() -> AsyncIterator[str]:
+        async for frame in frames:
+            yield sse_frame(frame)
+
+    return generate()
+
+
 @router.post("/conversations/{conversation_id}/chat")
 async def chat(
     conversation_id: uuid.UUID,
@@ -36,10 +47,11 @@ async def chat(
     db: AsyncSession = Depends(get_db),
     runner: AgentRunner = Depends(get_agent_runner),
 ):
-    service = ConversationService(db)
-    conversation = await service.get_conversation(conversation_id, customer_id=user.customer_id)
     if user.customer_id is None:
         raise PermissionDeniedError("Customer profile is missing")
+
+    service = ConversationService(db)
+    conversation = await service.get_conversation(conversation_id, customer_id=user.customer_id)
 
     if conversation.mode != "ai":
         raise ConflictError("A human agent has taken over this conversation")
@@ -56,7 +68,7 @@ async def chat(
     )
 
     return StreamingResponse(
-        (sse_frame(frame) for frame in frames),
+        _sse_stream(frames),
         media_type="text/event-stream",
         headers=_SSE_HEADERS,
     )

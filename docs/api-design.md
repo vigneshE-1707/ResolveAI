@@ -9,8 +9,9 @@ Base URL: `/api/v1` · Auth: `Authorization: Bearer <access JWT>` (except `/auth
 - **Idempotency**: mutating endpoints accept `Idempotency-Key` header (UUID) — stored in
   `idempotency_keys`; repeat → same response, no duplicate resource.
 - **Pagination**: `?page=1&page_size=20` → `meta.pagination {page, page_size, total}`.
-- **Streaming**: chat + agent-reply push use SSE (`text/event-stream`) with `frame` events
-  (`token` | `card` | `turn_status[waiting_confirmation|done|escalated]` | `error`).
+- **Streaming**: chat uses SSE (`text/event-stream`) with `frame` events
+  (`turn_status[streaming|complete]` | `token` | `card` | `error` | `done`).
+  `waiting_confirmation` / `escalated` arrive with the M5–M7 approval and escalation paths.
 
 ## Endpoints
 
@@ -40,7 +41,8 @@ GET   /me/returns                       list mine
 POST  /me/returns                       {order_number, reason_code, reason_text?} → 201 (idempotent)
 
 RESS (role CUSTOMER)
-POST  /conversations/:id/chat           SSE stream of turn; body {message, turn_id}
+POST  /conversations/:id/chat           SSE stream of one turn; body {message, turn_id}
+                                        turn_id is client-generated and idempotent (retry replays)
 POST  /conversations/:id/messages       {content} → append (used for clarify-only replies)
 GET   /conversations/:id/messages       paginated transcript (customer: own; agent/admin: any)
 POST  /conversations/:id/approvals      {turn_id, decision: granted|denied}     → resumes graph (interrupt path)
@@ -78,6 +80,7 @@ GET   /admin/analytics/:dimension       date ranged aggregates:
                                         requests | resolutions | escalations | latency |
                                         failed-executions | categories
 GET   /admin/ai-runs                    monitoring list (filters by status/trace_id)
+                                        status: running|succeeded|failed|timeout|interrupted|escalated
 GET   /admin/audit-logs                 searchable audit trail
 GET   /admin/settings                   read-only env feature flags
 ```
@@ -86,15 +89,24 @@ GET   /admin/settings                   read-only env feature flags
 
 ```jsonc
 // POST /conversations/:id/chat  →  SSE
+// frame: data: {"type":"turn_status","value":"streaming"}
 // frame: data: {"type":"token","value":"Your order #ORD-1024 "}
-// frame: data: {"type":"card","kind":"order_status","data":{"order_number":"ORD-1024",
-//   "status":"shipped","carrier":"UPS","tracking":"1Z…","eta":"2026-11-02",
-//   "events":[{"at":"…","desc":"Departed facility"}]}}
-// frame: data: {"type":"card","kind":"approval_request","data":{"action":"create_return",
-//   "summary":"Return item 'Aurora Desk Lamp' (qty 1) — reason: wrong item",
-//   "id":"apr_3f9c…"}}
-// frame: data: {"type":"turn_status","value":"waiting_confirmation"}
+// frame: data: {"type":"card","kind":"order_status","data":{
+//   "kind":"order_status","orderNumber":"ORD-1024","status":"shipped",
+//   "carrier":"UPS","trackingNumber":"1Z999AA10123456784",
+//   "estimatedDelivery":"2026-11-02T00:00:00+00:00",
+//   "steps":[{"label":"Placed","at":"Oct 12","state":"done"},
+//            {"label":"Shipped","at":"Oct 14","state":"done"},
+//            {"label":"In transit","at":"Oct 14","state":"current"},
+//            {"label":"Delivered","at":"Nov 2","state":"upcoming"}]}}
+// frame: data: {"type":"turn_status","value":"complete"}
 // frame: data: {"type":"done","turn_id":"…"}
+//
+// failure: {"type":"error","code":"turn_timeout|agent_error|model_unavailable","message":"…"}
+//          followed by {"type":"done","turn_id":"…"}
+//
+// future (M5–M7): {"type":"card","kind":"approval_request","data":{…}} +
+//                  {"type":"turn_status","value":"waiting_confirmation"}
 ```
 
 ```jsonc
@@ -126,9 +138,27 @@ GET   /admin/settings                   read-only env feature flags
 
 ```
 event: frame
-data: {...one of the 5 frame shapes above...}
+data: {...one of the frame shapes above...}
 ```
 
-Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`. Heartbeat `event: ping` every 15 s.
-Client disconnect → server cancels graph task if not terminal; `ai_run.status= interrupted` recorded;
-checkpoint remains — user's next turn resumes the same thread.
+Headers: `Cache-Control: no-cache`, `X-Accel-Buffering: no`, `Connection: keep-alive`.
+Guards before the stream opens: customer role, conversation ownership, `mode == "ai"`, open status,
+and a configured model — each failure is a normal JSON error response (`404` / `403` / `409` / `503`),
+never a half-open stream.
+
+Turn lifecycle:
+
+1. `turn_status: streaming`
+2. zero or more `token` frames (compose node only)
+3. optional `card` frame (`{type, kind, data}`)
+4. `turn_status: complete`
+5. `done` with the `turn_id`
+
+A replay of an already-persisted `turn_id` emits the stored reply and card, then `complete` + `done`,
+without calling the model or writing a second assistant message. Server-side timeout
+(`AGENT_TURN_TIMEOUT_SECONDS`) emits `error` + `done` and closes the `ai_runs` row as `timeout`;
+a client disconnect records `interrupted` and leaves the checkpoint intact, so the next turn
+continues the same thread.
+
+Heartbeats (`event: ping`) are **not implemented yet** — turns are short-lived and buffering is
+disabled on the proxy. If a future path streams idle waits (approvals), add a 15 s ping.

@@ -25,6 +25,7 @@ interface ChatPanelProps {
   tickets?: TicketType[]
   className?: string
   composerHint?: string
+  composerDisabled?: boolean
   headerExtra?: ReactNode
   footerNote?: string
 }
@@ -39,6 +40,7 @@ export function ChatPanel({
   tickets = [],
   className,
   composerHint,
+  composerDisabled = false,
   headerExtra,
   footerNote,
 }: ChatPanelProps) {
@@ -121,7 +123,14 @@ export function ChatPanel({
             ))}
             {typing && <TypingIndicator />}
           </div>
-          <MessageComposer onSend={onSend} placeholder="Type your message..." hint={composerHint} />
+          <MessageComposer
+            onSend={onSend}
+            disabled={composerDisabled}
+            placeholder={
+              composerDisabled ? "This conversation is not accepting replies" : "Type your message..."
+            }
+            hint={composerHint}
+          />
           {footerNote && (
             <p className="border-t border-border bg-slate-50/60 px-3 py-1.5 text-center text-[10px] text-muted-foreground">
               {footerNote}

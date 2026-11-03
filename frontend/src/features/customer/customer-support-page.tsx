@@ -15,8 +15,15 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { Label } from "@/components/ui/label"
 import { useRole } from "@/app/auth-context"
-import { useConversationMessages, useMyAddresses, useMyConversations, useMyOrders, useMyTickets } from "@/lib/api/hooks"
-import { useDemoChat } from "@/features/customer/use-demo-chat"
+import {
+  useConversationMessages,
+  useCreateConversation,
+  useMyAddresses,
+  useMyConversations,
+  useMyOrders,
+  useMyTickets,
+} from "@/lib/api/hooks"
+import { useAgentChat } from "@/features/customer/use-agent-chat"
 import { timeAgo } from "@/lib/format"
 import { conversationModeTone } from "@/lib/status"
 import type { ActivityItem, Conversation, Customer } from "@/types"
@@ -57,7 +64,25 @@ export function CustomerSupportPage() {
   const isDraft = !activeConversation
   const messagesQuery = useConversationMessages(activeConversation?.id)
   const seededMessages = useMemo(() => messagesQuery.data?.data ?? [], [messagesQuery.data])
-  const { messages, typing, send } = useDemoChat(conversation.id, seededMessages)
+  const { mutateAsync: createConversation } = useCreateConversation()
+
+  const ensureConversation = useMemo(
+    () => async (subject: string) => {
+      const created = await createConversation(subject)
+      setActiveConversationId(created.id)
+      return created.id
+    },
+    [createConversation]
+  )
+
+  const { messages, typing, send } = useAgentChat({
+    conversationId: activeConversation?.id,
+    seedMessages: seededMessages,
+    ensureConversation,
+  })
+
+  const aiAvailable =
+    conversation.mode === "ai" && !["resolved", "closed"].includes(conversation.status)
   const [orderUpdates, setOrderUpdates] = useState(true)
 
   const profile: Customer = {
@@ -110,13 +135,27 @@ export function CustomerSupportPage() {
             orders={orders}
             tickets={tickets}
             className="h-[620px]"
+            composerDisabled={!aiAvailable}
+            composerHint={
+              aiAvailable
+                ? "AI assistant · answers are grounded in your account data"
+                : "A human agent is handling this conversation"
+            }
             headerExtra={
               <StatusBadge
-                tone={{ label: "Simulated replies", variant: "warning", dot: "bg-amber-500" }}
+                tone={
+                  aiAvailable
+                    ? { label: "AI agent · live", variant: "success", dot: "bg-emerald-500" }
+                    : { label: "Human agent", variant: "violet", dot: "bg-violet-500" }
+                }
                 className="hidden md:flex"
               />
             }
-            footerNote="Demo mode · replies are simulated from local data until the LangGraph agent is connected in Milestone 4"
+            footerNote={
+              aiAvailable
+                ? "Replies stream from the ResolveAI agent. It can look up orders on your account; changes to an order always need your confirmation."
+                : "The AI is paused while a human agent handles this conversation."
+            }
           />
 
           <Card>

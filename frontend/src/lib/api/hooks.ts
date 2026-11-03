@@ -111,6 +111,16 @@ export function useMyConversations(params: ListParams = {}) {
   })
 }
 
+export function useCreateConversation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (subject: string) => customerApi.createConversation(subject),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["customer", "conversations"] })
+    },
+  })
+}
+
 export function useConversationMessages(conversationId: string | undefined, params: ListParams = {}) {
   return useQuery({
     queryKey: queryKeys.customer.messages(conversationId ?? "", params),

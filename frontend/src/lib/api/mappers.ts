@@ -6,6 +6,7 @@ import type {
   ConversationMode,
   ConversationStatus,
   KnowledgeDocument,
+  MessageCard,
   MessageRole,
   Order,
   OrderStatus,
@@ -217,7 +218,26 @@ export function mapMessage(wire: WireMessage): ChatMessage {
     role: oneOf(wire.role, MESSAGE_ROLES, "assistant"),
     content: wire.content,
     createdAt: wire.created_at,
+    authorName: authorNameFor(wire.role),
+    card: mapCard(wire.card),
   }
+}
+
+const CARD_KINDS = ["order_status", "ticket_created", "approval_request", "escalation"] as const
+
+/** Cards are stored as JSONB; only render shapes the UI knows how to draw. */
+export function mapCard(value: unknown): MessageCard | undefined {
+  if (!value || typeof value !== "object") return undefined
+  const kind = (value as { kind?: unknown }).kind
+  if (typeof kind !== "string") return undefined
+  if (!(CARD_KINDS as readonly string[]).includes(kind)) return undefined
+  return value as MessageCard
+}
+
+function authorNameFor(role: string) {
+  if (role === "agent") return "Support agent"
+  if (role === "assistant") return "ResolveAI Assistant"
+  return undefined
 }
 
 export function mapAddress(wire: WireAddress) {

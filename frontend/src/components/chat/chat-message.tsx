@@ -92,13 +92,10 @@ export function ChatMessageBubble({ message, onSuggestion, compact = false }: Ch
           {message.card?.kind === "escalation" && <EscalationCard data={message.card} />}
 
           {message.failed && (
-            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5">
+            <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5">
               <span className="text-[11px] text-rose-700">
-                Response interrupted. Your message is saved — retry when ready.
+                Response interrupted. Your message is saved — send it again to retry.
               </span>
-              <Button size="xs" variant="outline" className="h-6 shrink-0 text-[11px]">
-                Retry
-              </Button>
             </div>
           )}
         </div>
@@ -107,7 +104,7 @@ export function ChatMessageBubble({ message, onSuggestion, compact = false }: Ch
         {!isUser && !isAgent && message.card?.kind === "order_status" && (
           <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
             <Wrench className="size-2.5" />
-            Grounded in <span className="font-mono">get_order_info</span> · MCP business tool · demo
+            Grounded in <span className="font-mono">get_order_status</span> · account-scoped tool
           </p>
         )}
 
@@ -211,7 +208,7 @@ export function MessageComposer({
         </Button>
       </div>
       <p className="mt-1 px-1 text-center text-[10px] text-muted-foreground">
-        {hint ?? "Demo mode — replies are simulated locally until Milestone 4"}
+        {hint ?? "AI assistant · answers are grounded in your account data"}
       </p>
     </form>
   )

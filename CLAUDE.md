@@ -106,6 +106,7 @@ cd backend
 .venv/bin/python -m pytest -q                    # macOS/Linux
 .venv/Scripts/python.exe -m pytest tests/integration -q   # needs Docker Postgres running
 .venv/Scripts/python.exe scripts/seed_demo.py --reset    # deterministic demo data
+.venv/Scripts/python.exe scripts/dev_server.py --reload  # dev API (selector loop; psycopg-safe)
 # mcp server (from Milestone 5)
 cd backend && python -m app.mcp_server.main
 ```
