@@ -194,5 +194,66 @@ export function useAgentChat({ conversationId, seedMessages, ensureConversation 
     [activeThread, conversationId, ensureConversation, patchMessage, queryClient, seedMessages]
   )
 
-  return { messages, typing, send }
+  const decideApproval = useCallback(
+    async (turnId: string, decision: "granted" | "denied") => {
+      const targetId = conversationId ?? activeThread?.id
+      if (!targetId || busyRef.current) return
+      busyRef.current = true
+      setThread((prev) => (prev ? { ...prev, typing: true } : prev))
+
+      const assistantId = `local_assistant_resume_${turnId}`
+      const now = new Date().toISOString()
+      const pendingMsg: ChatMessage = {
+        id: assistantId,
+        conversationId: targetId,
+        role: "assistant",
+        content: "",
+        createdAt: now,
+        authorName: "ResolveAI Assistant",
+        pending: true,
+      }
+      setThread((prev) =>
+        prev ? { ...prev, messages: [...prev.messages, pendingMsg], typing: true } : prev
+      )
+
+      try {
+        const controller = new AbortController()
+        abortRef.current = controller
+        let content = ""
+        let card: MessageCard | undefined
+        for await (const frame of customerApi.approvalStream(targetId, turnId, decision, controller.signal)) {
+          if (frame.type === "token" && typeof frame.value === "string") {
+            content += frame.value
+            patchMessage(assistantId, (msg) => ({ ...msg, content }))
+          } else if (frame.type === "card") {
+            card = mapCard(frame.data)
+            if (card) patchMessage(assistantId, (msg) => ({ ...msg, card }))
+          }
+        }
+        patchMessage(assistantId, (msg) => ({ ...msg, pending: false }))
+      } catch (err) {
+        patchMessage(assistantId, (msg) => ({
+          ...msg,
+          content: msg.content || "Approval action failed. Please try again.",
+          failed: true,
+          pending: false,
+        }))
+      } finally {
+        busyRef.current = false
+        abortRef.current = null
+        setThread((prev) => (prev ? { ...prev, typing: false } : prev))
+        if (targetId !== PENDING_ID) {
+          void queryClient.invalidateQueries({
+            queryKey: ["conversation", targetId, "messages"],
+          })
+          void queryClient.invalidateQueries({
+            queryKey: ["returns"],
+          })
+        }
+      }
+    },
+    [activeThread?.id, conversationId, patchMessage, queryClient]
+  )
+
+  return { messages, typing, send, decideApproval }
 }

@@ -133,7 +133,7 @@ async def test_general_question_skips_tools_and_answers_directly():
     )
     graph = _graph(llm, [_order_tool()])
 
-    text, values = await _run(graph, _state(messages=[HumanMessage(content="What is your return policy?", id="m1")]))
+    text, values = await _run(graph, _state(messages=[HumanMessage(content="Do you sell gift cards?", id="m1")]))
 
     assert values["intent"] == SupportIntent.GENERAL.value
     assert values["tool_results"] == []
@@ -238,7 +238,10 @@ async def test_tool_schemas_never_expose_customer_identity():
 
 def test_route_intent_sends_only_order_status_to_tools():
     assert route_intent({"intent": SupportIntent.ORDER_STATUS.value}) == "run_tools"
-    for intent in (SupportIntent.GENERAL, SupportIntent.ESCALATE, SupportIntent.OFF_TOPIC):
+    assert route_intent({"intent": SupportIntent.DELIVERY_COMPLAINT.value}) == "delivery_complaint"
+    assert route_intent({"intent": SupportIntent.RETURN_REQUEST.value}) == "return_flow"
+    assert route_intent({"intent": SupportIntent.ESCALATE.value}) == "escalate"
+    for intent in (SupportIntent.GENERAL, SupportIntent.OFF_TOPIC):
         assert route_intent({"intent": intent.value}) == "compose_response"
     assert route_intent({}) == "compose_response"
 

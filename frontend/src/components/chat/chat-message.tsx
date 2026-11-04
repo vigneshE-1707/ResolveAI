@@ -1,7 +1,7 @@
 import { Bot, ShieldCheck, Wrench } from "lucide-react"
 
 import { InlineOrderCard } from "@/components/chat/order-tracking-stepper"
-import { EscalationCard, TicketCreatedCard } from "@/components/cards/approval-card"
+import { ApprovalRequestCard, EscalationCard, TicketCreatedCard } from "@/components/cards/approval-card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -12,10 +12,11 @@ import type { ChatMessage } from "@/types"
 interface ChatMessageProps {
   message: ChatMessage
   onSuggestion?: (suggestion: string) => void
+  onApprovalDecision?: (decision: "granted" | "denied") => void
   compact?: boolean
 }
 
-export function ChatMessageBubble({ message, onSuggestion, compact = false }: ChatMessageProps) {
+export function ChatMessageBubble({ message, onSuggestion, onApprovalDecision, compact = false }: ChatMessageProps) {
   if (message.role === "system") {
     return (
       <div className="flex justify-center py-1">
@@ -90,6 +91,9 @@ export function ChatMessageBubble({ message, onSuggestion, compact = false }: Ch
           {message.card?.kind === "order_status" && <InlineOrderCard data={message.card} />}
           {message.card?.kind === "ticket_created" && <TicketCreatedCard data={message.card} />}
           {message.card?.kind === "escalation" && <EscalationCard data={message.card} />}
+          {message.card?.kind === "approval_request" && (
+            <ApprovalRequestCard data={message.card} onDecision={onApprovalDecision} />
+          )}
 
           {message.failed && (
             <div className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5">

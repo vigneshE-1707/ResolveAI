@@ -75,7 +75,7 @@ export function CustomerSupportPage() {
     [createConversation]
   )
 
-  const { messages, typing, send } = useAgentChat({
+  const { messages, typing, send, decideApproval } = useAgentChat({
     conversationId: activeConversation?.id,
     seedMessages: seededMessages,
     ensureConversation,
@@ -131,6 +131,7 @@ export function CustomerSupportPage() {
             messages={messages}
             typing={typing}
             onSend={send}
+            onApprovalDecision={decideApproval}
             onSuggestion={send}
             orders={orders}
             tickets={tickets}

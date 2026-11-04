@@ -1,4 +1,4 @@
-"""Conversation service."""
+"""Conversation service - conversations, messages, events."""
 from __future__ import annotations
 
 import uuid
@@ -39,9 +39,32 @@ class ConversationService:
         offset = (page - 1) * page_size
         return await self.conv_repo.list_for_agent(mode=mode, status=status, assigned_agent_id=assigned_agent_id, unassigned=unassigned, q=q, offset=offset, limit=page_size)
 
-    async def add_message(self, conversation_id: uuid.UUID, role: str, content: str, *, content_type: str = "text", card: dict | None = None, trace_id: str | None = None, latency_ms: int | None = None, token_usage: dict | None = None) -> Message:
+    async def add_message(
+        self,
+        conversation_id: uuid.UUID,
+        role: str,
+        content: str,
+        *,
+        content_type: str = "text",
+        card: dict | None = None,
+        sources: dict | list | None = None,
+        trace_id: str | None = None,
+        latency_ms: int | None = None,
+        token_usage: dict | None = None,
+    ) -> Message:
         seq = await self.msg_repo.get_next_seq(conversation_id)
-        msg = Message(conversation_id=conversation_id, role=role, content=content, content_type=content_type, card=card, trace_id=trace_id, latency_ms=latency_ms, token_usage=token_usage, seq=seq)
+        msg = Message(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            content_type=content_type,
+            card=card,
+            sources=sources,
+            trace_id=trace_id,
+            latency_ms=latency_ms,
+            token_usage=token_usage,
+            seq=seq,
+        )
         await self.msg_repo.create(msg)
         await self.session.commit()
         return msg
@@ -57,7 +80,7 @@ class ConversationService:
         await self.session.commit()
         return conv
 
-    async def add_event(self, conversation_id: uuid.UUID, event_type: str, *, actor_id: uuid.UUID | None = None, payload: dict | None = None) -> ConversationEvent:
+    async def add_event(self, conversation_id: uuid.UUID, event_type: str, actor_id: uuid.UUID | None = None, payload: dict | None = None) -> ConversationEvent:
         event = ConversationEvent(conversation_id=conversation_id, event_type=event_type, actor_id=actor_id, payload=payload)
         await self.event_repo.create(event)
         await self.session.commit()

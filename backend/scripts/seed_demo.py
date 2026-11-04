@@ -26,6 +26,7 @@ from sqlalchemy import select, text  # noqa: E402
 
 from app.core.security import hash_password  # noqa: E402
 from app.db.session import async_session_factory, engine  # noqa: E402
+from app.knowledge.embeddings import get_embedding_service  # noqa: E402
 from app.models.conversation import Conversation, Message  # noqa: E402
 from app.models.knowledge import KnowledgeChunk, KnowledgeDocument  # noqa: E402
 from app.models.order import Order, OrderItem, ReturnRequest, Shipment  # noqa: E402
@@ -826,7 +827,9 @@ async def _ensure_knowledge(session, category: str, title: str, content: str) ->
     # relationship would lazy-load and emit IO outside the async context.
     if category != "faq":
         paragraphs = [part.strip() for part in content.split("\n\n") if part.strip()]
-        for index, paragraph in enumerate(paragraphs):
+        embed_service = get_embedding_service()
+        embeddings = await embed_service.embed_texts(paragraphs)
+        for index, (paragraph, emb) in enumerate(zip(paragraphs, embeddings)):
             doc.chunks.append(
                 KnowledgeChunk(
                     id=uid(f"knowledge-chunk:{category}:{index}"),
@@ -834,6 +837,7 @@ async def _ensure_knowledge(session, category: str, title: str, content: str) ->
                     content=paragraph,
                     token_count=len(paragraph.split()),
                     metadata_={"source": "seed", "category": category},
+                    embedding=emb,
                 )
             )
         doc.chunk_count = len(paragraphs)

@@ -186,6 +186,29 @@ export const customerApi = {
       signal,
     }),
 
+  /** Resume an interrupted agent turn following user approval or rejection. */
+  approvalStream: (
+    conversationId: string,
+    turnId: string,
+    decision: "granted" | "denied",
+    signal?: AbortSignal
+  ) =>
+    apiStream(`/conversations/${encodeURIComponent(conversationId)}/approvals`, {
+      method: "POST",
+      body: { turn_id: turnId, decision },
+      signal,
+    }),
+
+  /** Escalate conversation to human agent queue. */
+  escalate: (conversationId: string, reason: string, priority: string = "normal") =>
+    apiRequest<{ ok: boolean; mode: string }>(
+      `/conversations/${encodeURIComponent(conversationId)}/escalate`,
+      {
+        method: "POST",
+        body: { reason, priority },
+      }
+    ),
+
   messages: (conversationId: string, params: ListParams = {}) =>
     apiRequest<WireList<WireMessage>>(
       `/conversations/${encodeURIComponent(conversationId)}/messages${query({

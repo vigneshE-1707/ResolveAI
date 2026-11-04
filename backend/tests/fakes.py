@@ -79,12 +79,15 @@ class KeywordClassifier:
             if isinstance(message, HumanMessage):
                 text = str(message.content)
                 break
-        if "ORD-" in text.upper():
-            start = text.upper().index("ORD-")
+        upper = text.upper()
+        if "ORD-" in upper:
+            start = upper.index("ORD-")
             number = text[start : start + 8]
             return IntentDecision(
                 intent=SupportIntent.ORDER_STATUS, order_number=number.upper()
             )
+        if any(w in upper for w in ("RETURN", "POLICY", "WARRANTY", "REFUND", "SHIPPING")):
+            return IntentDecision(intent=SupportIntent.POLICY_QA)
         return IntentDecision(intent=SupportIntent.GENERAL)
 
 

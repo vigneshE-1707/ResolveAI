@@ -17,6 +17,16 @@ class ChatRequest(BaseModel):
     turn_id: uuid.UUID
 
 
+class ApprovalRequest(BaseModel):
+    turn_id: str = Field(min_length=1, description="Original turn ID of the interrupted action.")
+    decision: str = Field(description="'granted' (or 'approved') vs 'denied' (or 'cancelled').")
+
+
+class EscalateRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000, description="Reason for requesting a human agent.")
+    priority: str = Field(default="normal", description="Priority level ('low', 'normal', 'high').")
+
+
 class AgentReplyCreate(BaseModel):
     content: str = Field(min_length=1, max_length=10000)
 

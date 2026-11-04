@@ -21,6 +21,7 @@ interface ChatPanelProps {
   typing?: boolean
   onSend: (value: string) => void
   onSuggestion?: (value: string) => void
+  onApprovalDecision?: (turnId: string, decision: "granted" | "denied") => void
   orders?: OrderSummary[]
   tickets?: TicketType[]
   className?: string
@@ -36,6 +37,7 @@ export function ChatPanel({
   typing = false,
   onSend,
   onSuggestion,
+  onApprovalDecision,
   orders = [],
   tickets = [],
   className,
@@ -119,7 +121,7 @@ export function ChatPanel({
               </div>
             )}
             {messages.map((message) => (
-              <ChatMessageBubble key={message.id} message={message} onSuggestion={onSuggestion} />
+              <ChatMessageBubble key={message.id} message={message} onSuggestion={onSuggestion} onApprovalDecision={(decision) => onApprovalDecision?.(message.card?.kind === "approval_request" ? message.card.approvalId.replace("appr-", "") : "", decision)} />
             ))}
             {typing && <TypingIndicator />}
           </div>

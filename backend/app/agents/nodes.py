@@ -1,4 +1,4 @@
-"""Graph nodes: classify → (tools) → compose.
+"""Graph nodes: classify → (tools | retrieve_knowledge | workflows) → compose.
 
 Nodes are factories so tests can inject a fake classifier/model without patching
 module globals. No node reads identity from the model; ``customer_id`` only
@@ -21,6 +21,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.tools import BaseTool
+from langgraph.types import interrupt
 
 from app.agents.prompts import (
     CLASSIFY_SYSTEM,
@@ -35,6 +36,7 @@ logger = logging.getLogger("resolveai.agent")
 _ORDER_NUMBER_RE = re.compile(r"^ORD-\d{3,10}$", re.IGNORECASE)
 
 HistoryLoader = Callable[[str], Awaitable[list[AnyMessage]]]
+KnowledgeRetriever = Callable[[str], Awaitable[list[dict[str, Any]]]]
 
 
 class Classifier(Protocol):
@@ -106,6 +108,7 @@ def make_classify_node(classifier: Classifier):
             return {
                 "intent": SupportIntent.GENERAL.value,
                 "order_number": None,
+                "reason": None,
                 "errors": [{"node": "classify_intent", "code": "classifier_failed", "retryable": True}],
             }
 
@@ -113,16 +116,79 @@ def make_classify_node(classifier: Classifier):
         if order_number and not _ORDER_NUMBER_RE.match(order_number):
             order_number = None
 
-        return {"intent": decision.intent.value, "order_number": order_number}
+        return {
+            "intent": decision.intent.value,
+            "order_number": order_number,
+            "reason": decision.reason,
+        }
 
     return classify_intent
 
 
 def route_intent(state: SupportState) -> str:
-    """order_status needs account data; everything else can be answered directly."""
-    if state.get("intent") == SupportIntent.ORDER_STATUS.value:
+    """Route classified intent to specialized sub-workflow or direct compose."""
+    intent = state.get("intent")
+    if intent == SupportIntent.ORDER_STATUS.value:
         return "run_tools"
+    if intent == SupportIntent.POLICY_QA.value:
+        return "retrieve_knowledge"
+    if intent == SupportIntent.DELIVERY_COMPLAINT.value:
+        return "delivery_complaint"
+    if intent == SupportIntent.RETURN_REQUEST.value:
+        return "return_flow"
+    if intent == SupportIntent.TICKET_CREATION.value:
+        return "run_tools"
+    if intent == SupportIntent.ESCALATE.value:
+        return "escalate"
     return "compose_response"
+
+
+def route_return_flow(state: SupportState) -> str:
+    """Route from return_flow: if pending approval, interrupt; otherwise compose directly."""
+    if state.get("pending_action"):
+        return "approval"
+    return "compose_response"
+
+
+def make_retrieve_knowledge_node(retriever: KnowledgeRetriever):
+    async def retrieve_knowledge(state: SupportState) -> dict[str, Any]:
+        query = ""
+        for msg in reversed(state.get("messages", [])):
+            role = getattr(msg, "role", None) or getattr(msg, "type", None)
+            if role in ("human", "user"):
+                query = message_text(msg.content)
+                break
+        if not query and state.get("messages"):
+            query = message_text(state["messages"][-1].content)
+
+        if not query:
+            return {"retrieved_knowledge": [], "sources": []}
+
+        try:
+            hits = await retriever(query)
+            sources = [
+                {
+                    "title": hit.get("title", "Store Policy"),
+                    "category": hit.get("category", "general"),
+                    "chunk_index": hit.get("chunk_index", 0),
+                }
+                for hit in hits
+            ]
+            return {"retrieved_knowledge": hits, "sources": sources}
+        except Exception as exc:
+            logger.warning(
+                "Knowledge retrieval failed",
+                extra={"event": "retrieve_failed", "error_type": type(exc).__name__},
+            )
+            return {
+                "retrieved_knowledge": [],
+                "sources": [],
+                "errors": [
+                    {"node": "retrieve_knowledge", "code": "retrieval_failed", "retryable": True}
+                ],
+            }
+
+    return retrieve_knowledge
 
 
 def make_tools_node(llm: BaseChatModel, tools: list[BaseTool]):
@@ -132,7 +198,7 @@ def make_tools_node(llm: BaseChatModel, tools: list[BaseTool]):
     async def run_tools(state: SupportState) -> dict[str, Any]:
         history = list(state.get("messages", []))[-settings.agent_history_messages :]
         working: list[AnyMessage] = [SystemMessage(TOOLS_SYSTEM), *history]
-        results: list[dict[str, Any]] = []
+        results: list[dict[str, Any]] = list(state.get("tool_results") or [])
         errors: list[dict[str, Any]] = []
         usage: dict[str, int] = {}
 
@@ -176,14 +242,203 @@ def make_tools_node(llm: BaseChatModel, tools: list[BaseTool]):
     return run_tools
 
 
+def make_delivery_node(tools: list[BaseTool]):
+    """Delivery complaint workflow node: checks order/shipment and creates ticket if needed."""
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    async def delivery_complaint(state: SupportState) -> dict[str, Any]:
+        order_number = state.get("order_number")
+        results = list(state.get("tool_results") or [])
+        ticket_number = None
+
+        # 1. Lookup order info if order number available
+        get_status_tool = tools_by_name.get("get_order_status")
+        list_orders_tool = tools_by_name.get("list_my_orders")
+        create_ticket_tool = tools_by_name.get("create_support_ticket")
+
+        if order_number and get_status_tool:
+            try:
+                res = await get_status_tool.ainvoke({"order_number": order_number})
+                results.append({"name": "get_order_status", "result": res})
+            except Exception as exc:
+                logger.warning("Delivery node order status lookup failed: %s", exc)
+        elif list_orders_tool:
+            try:
+                res = await list_orders_tool.ainvoke({"limit": 3})
+                results.append({"name": "list_my_orders", "result": res})
+                if res.get("ok") and res.get("orders"):
+                    order_number = res["orders"][0]["order_number"]
+            except Exception as exc:
+                logger.warning("Delivery node order listing failed: %s", exc)
+
+        # 2. File delivery issue ticket
+        if create_ticket_tool:
+            subject = f"Delivery inquiry for {order_number}" if order_number else "Delivery issue reported"
+            desc = f"Customer reported delivery delay or issue for order {order_number}."
+            try:
+                tkt_res = await create_ticket_tool.ainvoke({
+                    "subject": subject,
+                    "category": "delivery_issue",
+                    "description": desc,
+                    "order_number": order_number,
+                })
+                results.append({"name": "create_support_ticket", "result": tkt_res})
+                if tkt_res.get("ok"):
+                    ticket_number = tkt_res.get("ticket_number")
+            except Exception as exc:
+                logger.warning("Delivery node ticket creation failed: %s", exc)
+
+        return {
+            "order_number": order_number,
+            "tool_results": results,
+            "ticket_number": ticket_number,
+        }
+
+    return delivery_complaint
+
+
+def make_return_flow_node(tools: list[BaseTool]):
+    """Return request workflow: evaluates return eligibility and prepares approval action."""
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    async def return_flow(state: SupportState) -> dict[str, Any]:
+        order_number = state.get("order_number")
+        results = list(state.get("tool_results") or [])
+
+        # If no order number specified, attempt to inspect recent orders
+        if not order_number and tools_by_name.get("list_my_orders"):
+            try:
+                orders_res = await tools_by_name["list_my_orders"].ainvoke({"limit": 3})
+                results.append({"name": "list_my_orders", "result": orders_res})
+                if orders_res.get("ok") and orders_res.get("orders") and len(orders_res["orders"]) == 1:
+                    order_number = orders_res["orders"][0]["order_number"]
+            except Exception as exc:
+                logger.warning("Error fetching orders in return_flow: %s", exc)
+
+        if not order_number:
+            return {"tool_results": results, "pending_action": None}
+
+        # Check return eligibility
+        check_tool = tools_by_name.get("check_return_eligibility")
+        eligibility = None
+        if check_tool:
+            try:
+                eligibility = await check_tool.ainvoke({"order_number": order_number})
+                results.append({"name": "check_return_eligibility", "result": eligibility})
+            except Exception as exc:
+                logger.warning("Return eligibility check failed: %s", exc)
+
+        # If eligible, prepare approval action envelope
+        if eligibility and eligibility.get("ok") and eligibility.get("eligible"):
+            reason = state.get("reason") or "changed_mind"
+            pending_action = {
+                "action": "create_return",
+                "order_number": order_number,
+                "reason": reason,
+                "summary": f"Create return for order {order_number} (reason: {reason})",
+                "approval_id": f"appr-{state.get('turn_id', '')}",
+            }
+            return {
+                "order_number": order_number,
+                "tool_results": results,
+                "pending_action": pending_action,
+            }
+
+        return {
+            "order_number": order_number,
+            "tool_results": results,
+            "pending_action": None,
+        }
+
+    return return_flow
+
+
+def make_approval_node(tools: list[BaseTool]):
+    """Human-in-the-loop approval node: interrupts for user confirmation, then executes."""
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    async def approval(state: SupportState) -> dict[str, Any]:
+        pending = state.get("pending_action")
+        if not pending:
+            return {}
+
+        # Pause execution using LangGraph interrupt
+        resume_val = interrupt(pending)
+
+        # Resumed via Command(resume=...)
+        decision = "denied"
+        if isinstance(resume_val, str):
+            decision = resume_val.lower()
+        elif isinstance(resume_val, dict):
+            decision = str(resume_val.get("decision", "denied")).lower()
+
+        results = list(state.get("tool_results") or [])
+        if decision in ("granted", "approved", "confirm", "confirmed"):
+            order_number = pending.get("order_number")
+            reason = pending.get("reason", "changed_mind")
+            idempotency_key = f"ret-{state.get('conversation_id')}-{state.get('turn_id')}"
+            tool = tools_by_name.get("create_return_request")
+            if tool:
+                try:
+                    payload = await tool.ainvoke({
+                        "order_number": order_number,
+                        "reason": reason,
+                        "idempotency_key": idempotency_key,
+                    })
+                    results.append({"name": "create_return_request", "result": payload})
+                except Exception as exc:
+                    results.append({"name": "create_return_request", "result": {"ok": False, "error": str(exc)}})
+            return {
+                "approval_decision": "granted",
+                "tool_results": results,
+                "pending_action": None,
+            }
+        else:
+            return {
+                "approval_decision": "denied",
+                "pending_action": None,
+            }
+
+    return approval
+
+
+def make_escalate_node(tools: list[BaseTool]):
+    """Escalates conversation to human agent queue."""
+    tools_by_name = {tool.name: tool for tool in tools}
+
+    async def escalate(state: SupportState) -> dict[str, Any]:
+        conv_id = state.get("conversation_id", "")
+        results = list(state.get("tool_results") or [])
+        handover_tool = tools_by_name.get("request_human_handover")
+        if handover_tool and conv_id:
+            try:
+                res = await handover_tool.ainvoke({
+                    "conversation_id": conv_id,
+                    "reason": "Customer requested a human support agent",
+                    "priority": "normal",
+                })
+                results.append({"name": "request_human_handover", "result": res})
+            except Exception as exc:
+                logger.warning("Escalation handover tool call failed: %s", exc)
+
+        return {
+            "escalated": True,
+            "tool_results": results,
+        }
+
+    return escalate
+
+
 def make_compose_node(llm: BaseChatModel):
     async def compose_response(state: SupportState) -> dict[str, Any]:
         results = state.get("tool_results") or []
+        retrieved = state.get("retrieved_knowledge") or []
         system = SystemMessage(
             compose_system_prompt(
                 intent=state.get("intent"),
                 order_number=state.get("order_number"),
                 tool_results_json=json.dumps(results, default=str),
+                retrieved_knowledge=retrieved,
             )
         )
         history = list(state.get("messages", []))[-settings.agent_history_messages :]
@@ -209,9 +464,54 @@ def make_compose_node(llm: BaseChatModel):
                 "speak with a human agent."
             )
 
-        return {"reply": reply, "card": build_order_card(results), "usage": usage}
+        card = build_response_card(results, state)
+
+        return {
+            "reply": reply,
+            "card": card,
+            "sources": state.get("sources"),
+            "usage": usage,
+        }
 
     return compose_response
+
+
+def build_response_card(
+    results: list[dict[str, Any]],
+    state: SupportState | None = None,
+) -> dict[str, Any] | None:
+    """Build the grounded response card (approval, ticket, escalation, or order status)."""
+    if state:
+        if state.get("pending_action"):
+            pending = state["pending_action"]
+            return {
+                "kind": "approval_request",
+                "action": pending.get("action", "create_return"),
+                "summary": pending.get("summary", ""),
+                "approvalId": pending.get("approval_id", ""),
+            }
+        if state.get("escalated"):
+            return {
+                "kind": "escalation",
+                "reason": "Customer transferred to human specialist queue.",
+                "queuePosition": 1,
+                "estimatedWait": "3-5 min",
+            }
+
+    # Check for created ticket
+    for item in reversed(results):
+        if item.get("name") == "create_support_ticket":
+            res = item.get("result") or {}
+            if res.get("ok") and res.get("ticket_number"):
+                return {
+                    "kind": "ticket_created",
+                    "ticketNumber": res.get("ticket_number"),
+                    "subject": res.get("subject", "Support Ticket"),
+                    "status": res.get("status", "open"),
+                }
+
+    # Check for order status card
+    return build_order_card(results)
 
 
 def build_order_card(results: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -219,7 +519,7 @@ def build_order_card(results: list[dict[str, Any]]) -> dict[str, Any] | None:
     orders = [
         item["result"]["order"]
         for item in results
-        if item.get("name") == "get_order_status"
+        if item.get("name") in ("get_order_status", "get_order_info")
         and isinstance(item.get("result"), dict)
         and item["result"].get("ok")
         and isinstance(item["result"].get("order"), dict)
@@ -282,12 +582,21 @@ def _short_date(value: str | None) -> str:
 __all__ = [
     "Classifier",
     "LLMClassifier",
+    "HistoryLoader",
+    "KnowledgeRetriever",
     "make_load_context_node",
     "make_classify_node",
     "make_tools_node",
+    "make_delivery_node",
+    "make_return_flow_node",
+    "make_approval_node",
+    "make_escalate_node",
+    "make_retrieve_knowledge_node",
     "make_compose_node",
     "route_intent",
+    "route_return_flow",
     "build_order_card",
+    "build_response_card",
     "message_text",
     "usage_from_message",
 ]

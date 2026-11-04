@@ -61,7 +61,7 @@ async def _create_database() -> None:
         password=url.password,
         host=url.host,
         port=url.port or 5432,
-        database="resolveai",
+        database="postgres",
     )
     try:
         exists = await connection.fetchval(

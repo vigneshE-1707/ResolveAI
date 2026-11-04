@@ -22,12 +22,14 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.checkpointer import checkpointer_manager
 from app.agents.graph import build_graph
 from app.agents.llm import get_chat_model
-from app.agents.nodes import Classifier, LLMClassifier, message_text
+from app.agents.nodes import Classifier, LLMClassifier, KnowledgeRetriever, message_text
+from app.knowledge.retriever import search_knowledge_base
 from app.agents.tools import build_customer_tools
 from app.core.config import settings
 from app.core.errors import AppError, ModelUnavailableError
@@ -74,6 +76,7 @@ class AgentRunner:
         llm_factory: LLMFactory | None = None,
         classifier_factory: ClassifierFactory | None = None,
         tool_factory: ToolFactory | None = None,
+        knowledge_retriever: KnowledgeRetriever | None = None,
         checkpointer: BaseCheckpointSaver | None = None,
     ) -> None:
         self.session = session
@@ -83,6 +86,7 @@ class AgentRunner:
         self._llm_factory = llm_factory or get_chat_model
         self._classifier_factory = classifier_factory or LLMClassifier
         self._tool_factory = tool_factory or build_customer_tools
+        self._knowledge_retriever = knowledge_retriever
         self._checkpointer = checkpointer
 
     async def stream_turn(
@@ -128,11 +132,19 @@ class AgentRunner:
         try:
             llm = self._llm_factory()
             checkpointer = await self._resolve_checkpointer()
+
+            async def _default_retriever(q: str):
+                hits = await search_knowledge_base(self.session, query=q, top_k=4)
+                return [h.to_dict() for h in hits]
+
+            retriever_to_use = self._knowledge_retriever or _default_retriever
+
             graph = build_graph(
                 llm=llm,
                 tools=self._tool_factory(self.session, customer_id),
                 classifier=self._classifier_factory(llm),
                 history_loader=self._history_loader,
+                knowledge_retriever=retriever_to_use,
                 checkpointer=checkpointer,
             )
             config = {
@@ -148,6 +160,8 @@ class AgentRunner:
                 ],
                 "tool_results": [],
                 "errors": [],
+                "retrieved_knowledge": [],
+                "sources": None,
                 "reply": "",
                 "card": None,
                 "usage": {},
@@ -165,6 +179,40 @@ class AgentRunner:
 
                 snapshot = await graph.aget_state(config)
 
+            # Check if execution paused on human approval interrupt
+            if snapshot and snapshot.tasks and any(t.interrupts for t in snapshot.tasks):
+                status = "interrupted"
+                pending_interrupt = next(intr for t in snapshot.tasks for intr in t.interrupts)
+                pending_data = pending_interrupt.value if isinstance(pending_interrupt.value, dict) else {}
+
+                card = {
+                    "kind": "approval_request",
+                    "action": pending_data.get("action", "create_return"),
+                    "summary": pending_data.get("summary", "Please confirm return submission."),
+                    "approvalId": pending_data.get("approval_id", f"appr-{turn_id}"),
+                }
+
+                confirm_text = (
+                    f"I've verified that order {pending_data.get('order_number')} is eligible for return. "
+                    "Please confirm below to proceed with the return request."
+                )
+                yield {"type": "token", "value": confirm_text}
+                yield _card_frame(card)
+                yield {"type": "turn_status", "value": "awaiting_confirmation"}
+                yield {"type": "done", "turn_id": turn_id}
+
+                latency_ms = int((time.perf_counter() - started) * 1000)
+                assistant = await self.conversations.add_message(
+                    conversation.id,
+                    "assistant",
+                    confirm_text,
+                    card=card,
+                    trace_id=turn_id,
+                    latency_ms=latency_ms,
+                )
+                message_id = assistant.id
+                return
+
             values = snapshot.values if snapshot else {}
             reply = (values.get("reply") or "").strip()
             card = values.get("card")
@@ -173,6 +221,9 @@ class AgentRunner:
                 {"name": item.get("name"), "ok": bool((item.get("result") or {}).get("ok"))}
                 for item in values.get("tool_results") or []
             ]
+
+            if values.get("escalated"):
+                status = "escalated"
 
             if not reply:
                 raise ModelUnavailableError("The assistant returned an empty response")
@@ -183,6 +234,7 @@ class AgentRunner:
                 "assistant",
                 reply,
                 card=card,
+                sources=values.get("sources"),
                 trace_id=turn_id,
                 latency_ms=latency_ms,
                 token_usage=usage or None,
@@ -219,6 +271,156 @@ class AgentRunner:
                 "Agent turn failed",
                 extra={"event": "agent_turn_failed", "turn_id": turn_id},
             )
+            yield {
+                "type": "error",
+                "code": error_code,
+                "message": "The assistant is temporarily unavailable. Please try again.",
+            }
+            yield {"type": "done", "turn_id": turn_id}
+        finally:
+            await self._finish_run(
+                run.id,
+                status=status,
+                error_code=error_code,
+                latency_ms=int((time.perf_counter() - started) * 1000),
+                usage=usage,
+                tool_calls=tool_calls,
+                message_id=message_id,
+            )
+
+    async def resume_turn(
+        self,
+        *,
+        conversation: Conversation,
+        customer_id: uuid.UUID,
+        turn_id: str,
+        decision: str,
+    ) -> AsyncIterator[ChatFrame]:
+        """Resume an interrupted agent turn following user approval or rejection."""
+        # 1. Audit conversation event
+        event_type = (
+            "approval_granted"
+            if decision in ("granted", "approved", "confirm", "confirmed")
+            else "approval_denied"
+        )
+        await self.conversations.add_event(
+            conversation.id,
+            event_type,
+            actor_id=customer_id,
+            payload={"turn_id": turn_id, "decision": decision},
+        )
+
+        run = AiRun(
+            conversation_id=conversation.id,
+            trace_id=f"{turn_id}-resume",
+            graph_version=settings.agent_graph_version,
+            model_name=settings.llm_model,
+            status="running",
+        )
+        await self.ai_runs.create(run)
+        await self.session.commit()
+
+        started = time.perf_counter()
+        status = "succeeded"
+        error_code: str | None = None
+        usage: dict[str, int] = {}
+        tool_calls: list[dict[str, Any]] | None = None
+        message_id: uuid.UUID | None = None
+
+        yield {"type": "turn_status", "value": "streaming"}
+
+        try:
+            llm = self._llm_factory()
+            checkpointer = await self._resolve_checkpointer()
+
+            async def _default_retriever(q: str):
+                hits = await search_knowledge_base(self.session, query=q, top_k=4)
+                return [h.to_dict() for h in hits]
+
+            retriever_to_use = self._knowledge_retriever or _default_retriever
+
+            graph = build_graph(
+                llm=llm,
+                tools=self._tool_factory(self.session, customer_id),
+                classifier=self._classifier_factory(llm),
+                history_loader=self._history_loader,
+                knowledge_retriever=retriever_to_use,
+                checkpointer=checkpointer,
+            )
+            config = {
+                "configurable": {"thread_id": str(conversation.id)},
+                "metadata": {"turn_id": turn_id, "conversation_id": str(conversation.id)},
+            }
+
+            resume_cmd = Command(resume={"decision": decision})
+
+            async with asyncio.timeout(settings.agent_turn_timeout_seconds):
+                async for chunk, metadata in graph.astream(
+                    resume_cmd, config=config, stream_mode="messages"
+                ):
+                    if metadata.get("langgraph_node") != "compose_response":
+                        continue
+                    text = message_text(chunk.content)
+                    if text:
+                        yield {"type": "token", "value": text}
+
+                snapshot = await graph.aget_state(config)
+
+            values = snapshot.values if snapshot else {}
+            reply = (values.get("reply") or "").strip()
+            card = values.get("card")
+            usage = values.get("usage") or {}
+            tool_calls = [
+                {"name": item.get("name"), "ok": bool((item.get("result") or {}).get("ok"))}
+                for item in values.get("tool_results") or []
+            ]
+
+            if not reply:
+                if decision in ("granted", "approved", "confirm", "confirmed"):
+                    reply = "Your return request has been submitted successfully."
+                else:
+                    reply = "Return request cancelled. Let me know if you need help with anything else."
+
+            latency_ms = int((time.perf_counter() - started) * 1000)
+            assistant = await self.conversations.add_message(
+                conversation.id,
+                "assistant",
+                reply,
+                card=card,
+                sources=values.get("sources"),
+                trace_id=f"{turn_id}-resume",
+                latency_ms=latency_ms,
+                token_usage=usage or None,
+            )
+            message_id = assistant.id
+
+            if card:
+                yield _card_frame(card)
+            yield {"type": "turn_status", "value": "complete"}
+            yield {"type": "done", "turn_id": turn_id}
+
+        except asyncio.CancelledError:
+            status = "interrupted"
+            error_code = "client_disconnected"
+            raise
+        except TimeoutError:
+            status = "timeout"
+            error_code = "turn_timeout"
+            yield {
+                "type": "error",
+                "code": error_code,
+                "message": "The assistant took too long to resume. Please try again.",
+            }
+            yield {"type": "done", "turn_id": turn_id}
+        except AppError as exc:
+            status = "failed"
+            error_code = exc.code
+            yield {"type": "error", "code": exc.code, "message": exc.message}
+            yield {"type": "done", "turn_id": turn_id}
+        except Exception as exc:
+            status = "failed"
+            error_code = "agent_error"
+            logger.exception("Resume turn failed: %s", exc)
             yield {
                 "type": "error",
                 "code": error_code,

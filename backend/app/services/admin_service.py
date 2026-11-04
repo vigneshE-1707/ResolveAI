@@ -114,8 +114,29 @@ class AdminService:
         return await self.knowledge_repo.list_all(**kwargs)
 
     async def create_knowledge_doc(self, title: str, category: str, content_text: str | None = None, created_by: uuid.UUID | None = None):
+        from app.knowledge.ingest import ingest_document
+
         doc = KnowledgeDocument(title=title, category=category, content_text=content_text, status="processing", created_by=created_by)
         await self.knowledge_repo.create(doc)
+        await self.session.flush()
+        if content_text and content_text.strip():
+            await ingest_document(self.session, doc.id, content_text)
+        else:
+            doc.status = "ready"
+        await self.session.commit()
+        return doc
+
+    async def update_knowledge_doc(self, doc_id: uuid.UUID, **kwargs):
+        from app.knowledge.ingest import ingest_document
+
+        doc = await self.knowledge_repo.get_by_id(doc_id)
+        if not doc:
+            raise NotFoundError("Knowledge document")
+        content_changed = "content_text" in kwargs and kwargs["content_text"] != doc.content_text
+        for k, v in kwargs.items():
+            setattr(doc, k, v)
+        if content_changed:
+            await ingest_document(self.session, doc.id, doc.content_text)
         await self.session.commit()
         return doc
 

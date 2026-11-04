@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import NotFoundError
+from app.core.errors import NotFoundError, ValidationError
+from app.models.order import Order
 from app.repositories.order_repo import OrderRepository
 
 
@@ -14,17 +16,36 @@ class OrderService:
         self.session = session
         self.order_repo = OrderRepository(session)
 
-    async def get_customer_orders(self, customer_id: uuid.UUID, *, status: str | None = None, q: str | None = None, page: int = 1, page_size: int = 20):
+    async def get_customer_orders(
+        self,
+        customer_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ):
         offset = (page - 1) * page_size
-        return await self.order_repo.list_by_customer(customer_id, status=status, q=q, offset=offset, limit=page_size)
+        return await self.order_repo.list_by_customer(
+            customer_id, status=status, q=q, offset=offset, limit=page_size
+        )
 
-    async def get_order_by_number(self, order_number: str, *, customer_id: uuid.UUID | None = None):
+    async def get_order_by_number(
+        self, order_number: str, *, customer_id: uuid.UUID | None = None
+    ) -> Order:
         order = await self.order_repo.get_by_order_number(order_number, customer_id=customer_id)
         if not order:
             raise NotFoundError("Order", order_number)
         return order
 
-    async def list_all_orders(self, *, status: str | None = None, q: str | None = None, page: int = 1, page_size: int = 20):
+    async def list_all_orders(
+        self,
+        *,
+        status: str | None = None,
+        q: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ):
         offset = (page - 1) * page_size
         return await self.order_repo.list_all(status=status, q=q, offset=offset, limit=page_size)
 
@@ -35,10 +56,40 @@ class OrderService:
         await self.session.commit()
         return order
 
+    async def cancel_order(
+        self,
+        *,
+        order_number: str,
+        customer_id: uuid.UUID,
+        reason: str,
+        idempotency_key: str | None = None,
+    ) -> Order:
+        order = await self.get_order_by_number(order_number, customer_id=customer_id)
+        if order.status == "cancelled":
+            return order
+        if order.status in ("shipped", "delivered", "returned"):
+            raise ValidationError(f"Order cannot be cancelled because it is already {order.status}")
+
+        now = datetime.now(timezone.utc)
+        order.status = "cancelled"
+        order.cancelled_at = now
+        order.cancel_reason = reason
+        await self.session.commit()
+        return order
+
     async def check_return_eligibility(self, order_number: str, customer_id: uuid.UUID) -> dict:
         order = await self.order_repo.get_by_order_number(order_number, customer_id=customer_id)
         if not order:
             raise NotFoundError("Order", order_number)
         eligible = order.status in ("delivered", "shipped")
-        reason = "Order is eligible for return" if eligible else f"Order status '{order.status}' is not eligible for return"
-        return {"eligible": eligible, "reason": reason, "order_number": order.order_number, "order_status": order.status}
+        reason = (
+            "Order is eligible for return"
+            if eligible
+            else f"Order status '{order.status}' is not eligible for return"
+        )
+        return {
+            "eligible": eligible,
+            "reason": reason,
+            "order_number": order.order_number,
+            "order_status": order.status,
+        }

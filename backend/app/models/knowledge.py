@@ -1,14 +1,47 @@
 """KnowledgeDocument and KnowledgeChunk models."""
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from app.db.base import Base, UUIDMixin, TimestampMixin
+
+
+class VectorType(TypeDecorator):
+    """Universal vector representation supporting native pgvector or JSONB storage."""
+
+    impl = JSONB
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if hasattr(value, "tolist"):
+            return value.tolist()
+        return list(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return [float(x) for x in parsed]
+            except Exception:
+                cleaned = value.strip("[]() ")
+                if not cleaned:
+                    return []
+                return [float(x) for x in cleaned.split(",")]
+        if isinstance(value, (list, tuple)):
+            return [float(x) for x in value]
+        return value
 
 
 class KnowledgeDocument(Base, UUIDMixin, TimestampMixin):
@@ -40,7 +73,7 @@ class KnowledgeChunk(Base, UUIDMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     metadata_: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
-    # embedding column added in M6 when pgvector is available
+    embedding: Mapped[list[float] | None] = mapped_column("embedding", VectorType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
         default=lambda: datetime.now(timezone.utc),

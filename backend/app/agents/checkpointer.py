@@ -61,22 +61,32 @@ class CheckpointerManager:
         async with self._lock:
             if self._saver is not None:
                 return self._saver
-            await self._ensure_schema()
-            # Imported lazily: the package needs psycopg, which only the
-            # durable-checkpointer deployment requires.
-            from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-
-            context = AsyncPostgresSaver.from_conn_string(checkpoint_conninfo())
-            saver = await context.__aenter__()
             try:
-                await saver.setup()
-            except Exception:
-                await context.__aexit__(None, None, None)
-                raise
-            self._context = context
-            self._saver = saver
-            logger.info("LangGraph Postgres checkpointer ready", extra={"event": "checkpointer_ready"})
-            return saver
+                await self._ensure_schema()
+                # Imported lazily: the package needs psycopg, which only the
+                # durable-checkpointer deployment requires.
+                from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+
+                context = AsyncPostgresSaver.from_conn_string(checkpoint_conninfo())
+                saver = await context.__aenter__()
+                try:
+                    await saver.setup()
+                except Exception:
+                    await context.__aexit__(None, None, None)
+                    raise
+                self._context = context
+                self._saver = saver
+                logger.info("LangGraph Postgres checkpointer ready", extra={"event": "checkpointer_ready"})
+                return saver
+            except Exception as exc:
+                logger.warning(
+                    "Failed to initialize AsyncPostgresSaver (%s); falling back to InMemorySaver",
+                    exc,
+                    extra={"event": "checkpointer_fallback"},
+                )
+                if self._memory is None:
+                    self._memory = InMemorySaver()
+                return self._memory
 
     async def _ensure_schema(self) -> None:
         schema = checkpoint_schema()
